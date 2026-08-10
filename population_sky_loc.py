@@ -1,7 +1,7 @@
 import numpy as np
 from GWFish.modules.detection import Network, Detector
 from GWFish.modules.horizon import horizon
-from GWFish.modules.fishermatrix import compute_network_errors, sky_localization_percentile_factor
+from GWFish.modules.fishermatrix import compute_network_errors, sky_localization_percentile_factor, compute_detector_fisher
 import GWFish.modules as gwf_mods
 import pandas as pd
 import pathlib
@@ -12,11 +12,33 @@ import matplotlib
 import matplotlib.pylab as plt
 
 import json
-import utils
 
-base_dir  = os.getcwd()
+from athena_wfi import AthenaWFI
 
+from cocoon_model import (
+    cocoon_luminosity,
+    cocoon_temperature_keV,
+    cocoon_duration,
+)
+
+from spectrum import (
+    thermal_bremsstrahlung,
+    observed_flux,
+)
+
+from absorption import transmission
+from significance import get_observation_significance
+
+
+athena = AthenaWFI(
+    "rsp/NewAthena_WFI_13rows_LDA_wo_filter_FoVAvg_20260511.rsp",
+    "bkgd/NewAthena_WFI_13rows_LDA_20260528_bkgd_sum_9asec_wo_filter_FoVAvg.pha",
+)
+
+base_dir = "."
 regenerate = True
+
+N_pop = 50000
 
 if regenerate:
 
@@ -37,19 +59,31 @@ if regenerate:
     prior['chirp_mass'].minimum = 30
     prior['chirp_mass'].maximum = 10000
     prior['luminosity_distance'].minimum = 50
-    prior['luminosity_distance'].maximum = 106192.4 # z = 10
-    N_pop = 100
+    prior['luminosity_distance'].maximum = 106192.4 # z = 10, probably need to decrease for more detectable sources
+    prior['rho_agn'] = bb.prior.LogUniform(name='rho_agn', minimum=1e-8, maximum=1e-3)
+    prior['geocent_time'] = bb.prior.Uniform(name='geocent_time', minimum=0, maximum=np.pi * 10**7)
+
     _pop_samples = prior.sample(N_pop)
-    _pop_samples['geocent_time'] = np.zeros(N_pop)
     _pop_samples['total_mass'] = bb.gw.conversion.chirp_mass_and_mass_ratio_to_total_mass(_pop_samples['chirp_mass'], _pop_samples['mass_ratio'])
+    _pop_samples['redshift'] = bb.gw.conversion.luminosity_distance_to_redshift(_pop_samples['luminosity_distance'])
+    _pop_samples['mass_1'], _pop_samples['mass_2'] = bb.gw.conversion.chirp_mass_and_mass_ratio_to_component_masses(_pop_samples['chirp_mass'], _pop_samples['mass_ratio'])
 
     # Filter for only those that are detectable by NewAthena to slightly speed up the computation
-    Flux = utils.X_ray_luminosity_flux(np.array(_pop_samples['total_mass']), np.array(_pop_samples['luminosity_distance']))
-    detectable_map = Flux > utils.F_lim
+    # this is where we add new NewAthena spectrum modeling
+    sigma_thresh = 5
+    significance = get_observation_significance(athena, _pop_samples)
+    # get rid of nans for now, before we debug
+    detectable_map = (significance > sigma_thresh) & (~np.isnan(significance))
 
-    print("fraction detectable by NewAthena:", len(np.array(_pop_samples['total_mass'])[detectable_map])/len(np.array(_pop_samples['total_mass'])))
+    print("fraction of this population detectable by NewAthena:", len(np.array(_pop_samples['total_mass'])[detectable_map])/len(np.array(_pop_samples['total_mass'])))
 
-    pop_samples = {k: [x for x, m in zip(v, detectable_map) if m] for k, v in _pop_samples.items()}
+    # We need to get rid of duplicate parameters
+    # Removing spin parameters for now: 'a_1', 'a_2', 'tilt_1', 'tilt_2', 'phi_12', 'phi_jl'
+    wanted_params = ['mass_ratio', 'chirp_mass', 'luminosity_distance', 'theta_jn', 'psi', 'ra', 'dec', 'geocent_time']
+    pop_samples = {k: [x for x, m in zip(v, detectable_map) if m] for k, v in _pop_samples.items() if k in wanted_params}
+
+    total_mass = np.array(_pop_samples['total_mass'])[detectable_map]
+
 
     const_90 = sky_localization_percentile_factor(90)
     const_50 = sky_localization_percentile_factor(50)
@@ -58,7 +92,6 @@ if regenerate:
                                          detection_SNR=(0., 12.),
                                          config=pathlib.Path(base_dir + '/detectors.yaml'))
 
-    total_mass = pop_samples.pop('total_mass')
 
     gwfish_input_data = pd.DataFrame.from_dict({k:v*np.array([1.]) for k, v in pop_samples.items()})
 
@@ -66,19 +99,14 @@ if regenerate:
         network=network,
         parameter_values=gwfish_input_data,
         f_ref=10,
-        waveform_model='IMRPhenomXPHM',
-        save_matrices=True,
-        save_matrices_path=pathlib.Path(os.path.join(base_dir,
-                                                 'GWFish_analysis',
-                                                 'BBH',
-                                                 'Fisher_matrices')),
-        matrix_naming_postfix="test"
+        waveform_model='IMRPhenomXAS',
+        save_matrices=False,
     )
 
     results['sky_percentiles_90'] = results['sky_locs'] * const_90
     results['sky_percentiles_50'] = results['sky_locs'] * const_50
 
-    pop_samples['total_mass'] = total_mass
+    pop_samples['total_mass'] = total_mass.tolist()
 
     with open("data.json", "w") as f:
         for key in results:
@@ -90,6 +118,10 @@ else:
 
     with open("data.json", "r") as f:
         data = json.load(f)
+
+print(len(data['pop_samples']['total_mass'])/N_pop)
+print(len(data['results']['sky_percentiles_90'])/N_pop)
+
 
 detected_idxs_3G = data['results']['detected_idxs']
 within_WFI_map = np.array(data['results']['sky_percentiles_90'])[detected_idxs_3G] < 0.7
@@ -113,6 +145,6 @@ plt.xlabel('total mass [M$_\odot$]')
 plt.ylabel('90% sky loc [deg$^2$]')
 plt.xscale('log')
 plt.yscale('log')
-plt.savefig('Mt_vs_sky_loc.png')
+plt.savefig('Mt_vs_sky_loc.pdf')
 plt.close()
 
