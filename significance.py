@@ -2,6 +2,11 @@ import numpy as np
 
 from athena_wfi import AthenaWFI
 
+from agn_model import (
+    agn_grid_interps,
+    get_disk_properties
+)
+
 from cocoon_model import (
     cocoon_luminosity,
     cocoon_temperature_keV,
@@ -16,6 +21,8 @@ from spectrum import (
 from absorption import transmission
 
 from kicks import Vkick_NRfit
+
+import matplotlib.pyplot as plt
 
 
 def get_kicks(source_properties):
@@ -34,7 +41,7 @@ def get_kicks(source_properties):
     return np.array(remnant_kicks)
 
 
-def get_observation_significance(detector_model, source_properties):
+def get_observation_significance(detector_model, source_properties, M_SMBH, fractional_rbbh):
 
     Eobs = detector_model.energy
     Erest = np.array([Eobs * (1 + z) for z in source_properties['redshift']])
@@ -42,25 +49,34 @@ def get_observation_significance(detector_model, source_properties):
     # Remnant mass in solar masses
     remnant_mass = (source_properties['mass_1'] + source_properties['mass_2']) * 0.95 # IRS todo make this computation more sophisticated
     vk = get_kicks(source_properties) * 1e5 # kick units are km/s, converted to cm/s
-    cs = 1e7 # sound speed - IRS this is constant for all AGN, is this reasonable or should it vary with density?
+
+    # Set up agn model
+    smbh_grid = np.logspace(6, 10, 10)
+    dimless_rmin, dimless_rmax, log_rho_interp, log_cs_interp = agn_grid_interps(smbh_grid)
+    dimless_rbbh = dimless_rmin + (fractional_rbbh * (dimless_rmax - dimless_rmin))
+
+    rho_agn, cs = get_disk_properties(log_rho_interp, log_cs_interp, M_SMBH, dimless_rbbh)
+    # convert to cgs
+    rho_agn *= 1e-3
+    cs *= 1e2
 
     Lx = cocoon_luminosity(
                 remnant_mass,
-                source_properties['rho_agn'],
+                rho_agn,
                 vk,
                 cs,
             )
 
     kT = cocoon_temperature_keV(
                 remnant_mass,
-                source_properties['rho_agn'],
+                rho_agn,
                 vk,
                 cs,
             )
 
     duration = cocoon_duration(
                 remnant_mass,
-                source_properties['rho_agn'],
+                rho_agn,
                 vk,
                 cs,
             )
@@ -85,5 +101,11 @@ def get_observation_significance(detector_model, source_properties):
                         S + B
                     )
     )
+    fig = plt.figure()
+    plt.scatter(vk, significance)
+    plt.xlabel('vk (cm/s)')
+    plt.ylabel('significance')
+    plt.savefig('vk_vs_sig.png')
+    plt.close()
     return np.array(significance)
 

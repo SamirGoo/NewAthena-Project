@@ -18,7 +18,7 @@ def mdot_bhl(
     m = mass * MSUN
 
     return (
-        4
+        4.0
         * np.pi
         * G**2
         * m**2

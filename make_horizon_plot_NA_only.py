@@ -2,6 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from athena_wfi import AthenaWFI
 
+from agn_model import (
+    agn_grid_interps,
+    get_disk_properties
+)
+
 from cocoon_model import (
     cocoon_luminosity,
     cocoon_temperature_keV,
@@ -15,24 +20,48 @@ from spectrum import (
 
 from absorption import transmission
 
-
 athena = AthenaWFI(
     "rsp/NewAthena_WFI_13rows_LDA_wo_filter_FoVAvg_20260511.rsp",
     "bkgd/NewAthena_WFI_13rows_LDA_20260528_bkgd_sum_9asec_wo_filter_FoVAvg.pha",
 )
 
-# agn density in g / cm^3 - vary this: inner disk can be 10^-8 to 10^-3, outer disk can go down to 10^-11 or lower.
-# motivation for sampling log-uniform distribution: mass density correlates with distribution of BHs? More likely to be in inner disk, especially if massive?
-log_rho_agn_samples = np.random.uniform(-8, -3, 100)
-rho_agn_samples = np.power(10, log_rho_agn_samples)
-cs = 1e7 # sound speed
+# Number of AGN parameters and BBH positions to vary
+N_agn = 500
 
+# SMBH masses
+log_SMBH_masses = np.random.uniform(
+    6,
+    10,
+    N_agn
+)
+SMBH_masses = np.power(10, log_SMBH_masses)
+
+# Set up agn model - need grid of masses to interpolate over
+M_SMBH_GRID = np.logspace(6, 10, 10)
+dimless_rmin, dimless_rmax, log_rho_interp, log_cs_interp = agn_grid_interps(M_SMBH_GRID)
+
+# BBH location in disk, units of Schwarzchild radius of SMBH
+log_bbh_dimless_radii = np.random.uniform(
+    np.log10(dimless_rmin),
+    np.log10(dimless_rmax),
+    N_agn
+)
+bbh_dimless_radii = np.power(10, log_bbh_dimless_radii)
+
+# Get sound speeds and densities
+rho_agn_grid, cs_grid = get_disk_properties(log_rho_interp, log_cs_interp, SMBH_masses, bbh_dimless_radii)
+# Convert from SI (kg m^-3, m s^-1) to cgs (g cm^-3, cm s^-1)
+rho_agn_grid *= 1e-3
+cs_grid *= 1e2
+
+# BBH masses
 masses = np.logspace(
     1.5,
     4.4,
     200,
 )
 
+# redshift range
 z_grid = np.logspace(
     -1,
     2,
@@ -43,7 +72,6 @@ Eobs = athena.energy
 Erest = [Eobs * (1 + z) for z in z_grid]
 
 # kick velocities references - https://arxiv.org/abs/2106.07179, https://pure.mpg.de/rest/items/item_3626410_5/component/file_3626411/content
-# ask parthapratim for kick estimation code from Appendix A of first paper, otherwise code up myself
 # kick units are cm/s
 kick_velocities = {
     "50 km/s": 0.5e7,
@@ -63,7 +91,7 @@ for i, (label, vk) in enumerate(kick_velocities.items()):
 
         zmax_range = []
 
-        for rho_agn in rho_agn_samples:
+        for rho_agn, cs in zip(rho_agn_grid, cs_grid):
 
             zmax = 0
 

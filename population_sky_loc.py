@@ -38,7 +38,7 @@ athena = AthenaWFI(
 base_dir = "."
 regenerate = True
 
-N_pop = 50000
+N_pop = 100000
 
 if regenerate:
 
@@ -59,8 +59,9 @@ if regenerate:
     prior['chirp_mass'].minimum = 30
     prior['chirp_mass'].maximum = 10000
     prior['luminosity_distance'].minimum = 50
-    prior['luminosity_distance'].maximum = 106192.4 # z = 10, probably need to decrease for more detectable sources
-    prior['rho_agn'] = bb.prior.LogUniform(name='rho_agn', minimum=1e-8, maximum=1e-3)
+    prior['luminosity_distance'].maximum = 25924.2 # z = 3, 47647.9 for z = 5, 106192.4 for z = 10, probably need to decrease for more detectable sources
+    prior['SMBH_mass'] = bb.prior.LogUniform(name='SMBH_mass', minimum=1e6, maximum=1e10)
+    prior['fractional_r'] = bb.prior.LogUniform(name='fractional_r', minimum=1e-10, maximum=1)
     prior['geocent_time'] = bb.prior.Uniform(name='geocent_time', minimum=0, maximum=np.pi * 10**7)
 
     _pop_samples = prior.sample(N_pop)
@@ -71,7 +72,7 @@ if regenerate:
     # Filter for only those that are detectable by NewAthena to slightly speed up the computation
     # this is where we add new NewAthena spectrum modeling
     sigma_thresh = 5
-    significance = get_observation_significance(athena, _pop_samples)
+    significance = get_observation_significance(athena, _pop_samples, _pop_samples['SMBH_mass'], _pop_samples['fractional_r'])
     # get rid of nans for now, before we debug
     detectable_map = (significance > sigma_thresh) & (~np.isnan(significance))
 
@@ -83,7 +84,6 @@ if regenerate:
     pop_samples = {k: [x for x, m in zip(v, detectable_map) if m] for k, v in _pop_samples.items() if k in wanted_params}
 
     total_mass = np.array(_pop_samples['total_mass'])[detectable_map]
-
 
     const_90 = sky_localization_percentile_factor(90)
     const_50 = sky_localization_percentile_factor(50)
@@ -126,6 +126,7 @@ print(len(data['results']['sky_percentiles_90'])/N_pop)
 detected_idxs_3G = data['results']['detected_idxs']
 within_WFI_map = np.array(data['results']['sky_percentiles_90'])[detected_idxs_3G] < 0.7
 within_10deg_map = np.array(data['results']['sky_percentiles_90'])[detected_idxs_3G] < 10
+
 
 print("fraction of detectable with sky area fully in WFI:",
 len(np.array(data['pop_samples']['total_mass'])[detected_idxs_3G][within_WFI_map])/len(np.array(data['pop_samples']['total_mass'])[detected_idxs_3G]))
