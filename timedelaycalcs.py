@@ -331,3 +331,103 @@ def m1_m2_from_chirp_q(chirp_mass, q):
     m2 = np.minimum(m1, m2)  # Ensure m2 is the smaller mass   - this should always be true based on how I have defined the equations 
 
     return m1, m2 #in solar masses 
+
+
+    #luminosity calculations - to include these in the plotting 
+
+    #from chen and dai
+
+def jet_luminosity(Mdot, eta_jet=0.1):
+    """
+    Calculate the jet luminosity based on the mass accretion rate and efficiency.
+    in cgs units 
+    so luminosity is returned in erg/s, Mdot needs to be in cgs etc
+    """
+    c = const.c.cgs.value  # Speed of light in cm/s (ie cgs units) 
+    Mdot_cgs = Mdot*const.M_sun.cgs.value  # Convert to cgs units 
+    L_jet = eta_jet * Mdot_cgs * c**2 
+    return L_jet
+
+def cocoon_energy(Mdot, eta_jet=0.1, t_breakout=1e10):
+    """
+    Calculating cocoon energy from the jet
+    want everything in cgs again
+    estimating v_jh/c is 0.1 so jet velocity is currently not needed 
+    t_breakout is something calculated earlier 
+    Mdot in soalr masses still -m conversion is done in jet luminosity function
+    """
+    c = const.c.cgs.value
+    L_jet = jet_luminosity(Mdot, eta_jet)
+    E_cocoon = L_jet * t_breakout * (1 - (0.1))  # estimating v_jh/c is 0.1 Figure 4 suggests that the jet heads are typically Newtonian and have velocities much smaller than c.
+    return E_cocoon
+
+
+
+def cocoon_luminosity_chen(Mdot, rho_agn, H, eta_jet=0.1, t_breakout=1e10):
+    """
+    Calculating the jet luminosity based on eq 29 of chen and dai 
+
+    f_FB = 0.1 following Nakar & Piran (2017)
+    kappa = 0.34 cm^2/g electron scattering opacity 
+    volume of cocoon V_cj = pi * (0.1*H)**2 * H 
+    E_c is calculated above - so I need to estimate breakout time and jet velocity to get this 
+    m_cj = rho_agn * V_cj
+
+    H is in cm 
+    rho agn in g/cm^3 ?? - need to check 
+    """  
+    c = const.c.cgs.value
+    E_cocoon = cocoon_energy(Mdot, eta_jet=0.1, t_breakout=t_breakout)
+    f_FB = 0.1
+    kappa = 0.34  # cm^2/g
+    H = H  # cm, height of the AGN disk
+    V_cj = np.pi * (0.1 * H)**2 * H
+    rho_agn = rho_agn  # g/cm^3, density of the AGN disk
+    m_cj = rho_agn * V_cj 
+
+    L_cocoon = 2 * np.pi * c * f_FB * E_cocoon * (V_cj)**(1/3) / (kappa * m_cj)
+
+    return L_cocoon
+
+
+# simple 
+
+import numpy as np
+from scipy.constants import c
+from astropy.cosmology import Planck18
+
+c = c * 100.0
+
+G = 6.6743e-8
+MSUN = 1.98847e33
+
+
+def mdot_bhl(mass,rho_agn,vk,cs,):
+
+    m = mass * MSUN #converting from Msun to grams 
+
+    return (4* np.pi* G**2 * m**2 * rho_agn /(vk**2 +cs**2)**1.5) 
+
+
+def jet_power(mass,rho_agn,vk,cs,f_bz=0.1,):
+
+    return (f_bz * mdot_bhl(mass, rho_agn, vk, cs) * c**2)
+
+
+def cocoon_luminosity(mass,rho_agn,vk,cs,epsilon_x=0.03,):
+
+    return (epsilon_x*jet_power(mass,rho_agn,vk,cs,))
+
+
+def cocoon_temperature_keV(mass, rho_agn, vk, cs):
+
+    Lj = jet_power(mass, rho_agn, vk, cs)
+
+    return (1.0 * ( Lj / 1e44 )**0.15)
+
+
+def cocoon_duration(mass, rho_agn, vk, cs):
+
+    Lj = jet_power(mass, rho_agn, vk, cs)
+
+    return (1000.0 * ( Lj / 1e44)**(-0.2))
