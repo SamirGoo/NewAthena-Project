@@ -46,34 +46,197 @@ def kick_mass_asymmetry_kms(q):
 
     return (A_term * B_term)
 
-#biz removed this- dont think I want to choose kicks just caluclatethem based on masses.
-# in further equatuions the kick is calculated based on the masses and the mass asymmetry. 
-# def choose_kick_velocity_kms(
-#     m1_msun,
-#     m2_msun,
-#     vk_user_kms=None,
-#     use_mass_asymmetry_only=True
-# ):
-#     """
-#     For first tests:
-#     - if vk_user_kms is supplied, use that;
-#     - otherwise use the mass-asymmetry kick only.
+def total_delay_days(*args, **kwargs):
+    return total_delay_s(*args, **kwargs) / DAY_CGS #converting time into days (for comparison)
 
-#     Later, replace this with a full spin-dependent recoil fit.
-#     """
-#     if vk_user_kms is not None:
-#         return np.asarray(vk_user_kms)
+"""
+Code from partapratim below: 
+- including the spin kick into the kick velocity 
+- including a remnant fit from lalsimulation 
+"""
 
-#     q = mass_ratio_q(m1_msun, m2_msun)
+'''
+This paper (https://arxiv.org/pdf/2106.07179) uses the RIT fit. However, a more accurate fit, the NRSurrogate fit, is now available, although it is currently valid only for mass ratios up to 6. 
+In recent paper (https://arxiv.org/pdf/2406.06390), we use the NRSurrogate fit for mass ratios (\leq 6) and the RIT fit for mass ratios (> 6).
+The NRSurrogate fit is available through the surfinBH package (I recommend installing it via conda install -c conda-forge surfinbh), while the RIT fit is now implemented in the precession package (which can be installed using pip install precession).
+For your convenience, I've shared a code snippet below for computing the recoil (kick) velocity. Please feel free to modify it as needed.
+'''
 
-#     if use_mass_asymmetry_only:
-#         return kick_mass_asymmetry_kms(q)
+import numpy as np
+import precession
+import surfinBH
 
-#     raise NotImplementedError(
-#         "Full spin-dependent kicks should be inserted here."
-#     )
+#Vkick RIT
+def Vkick_RIT(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
+    q = m2/m1 #mass ratio using here is heavier/lighter, so q <= 1. may need to put in assurances that this will be the case? 
+    Vrecoil = precession.remnantkick(np.arccos(costilt1),np.arccos(costilt2),phi12,q,chi1,chi2,kms=True,full_output=False)
+    return Vrecoil #this is in km/s
 
-# AGN and BHL quantities 
+#NRSURROGATE Fit
+def cartesian_spin_components(chi1,chi2,tilt1,tilt2,phi12):
+    spin_1x=chi1*np.sin(tilt1)
+    spin_1y=0.
+    spin_1z=chi1*np.cos(tilt1)
+    spin_2x=chi2*np.sin(tilt2)*np.cos(phi12)
+    spin_2y=chi2*np.sin(tilt2)*np.sin(phi12)
+    spin_2z=chi2*np.cos(tilt2)
+    return spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z
+
+fit_name = 'NRSur7dq4Remnant'
+fit = surfinBH.LoadFits(fit_name)
+
+#NRSUR Vkick
+def Vkick_NRSURfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
+    cc = 2.99792458e5 #kms
+    q = m1/m2 
+    spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = cartesian_spin_components(chi1,chi2,np.arccos(costilt1),np.arccos(costilt2),phi12)
+    chiA = [spin_1x, spin_1y, spin_1z]
+    chiB = [spin_2x, spin_2y, spin_2z]
+    vf, vf_err = fit.vf(q, chiA, chiB) # remnant recoil kick and 1-sigma error estimate (units of c) this bit is in units of c. 
+    return cc*np.sqrt((vf[0])**2.0 + (vf[1])**2.0 + (vf[2])**2.0) #now been converted into kms units - *c
+
+#NRSUR Remnant Mass
+def Mrem_NRSURfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
+    q = m1/m2
+    if q <= 6:
+        spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = cartesian_spin_components(chi1,chi2,np.arccos(costilt1),np.arccos(costilt2),phi12)
+        chiA = [spin_1x, spin_1y, spin_1z]
+        chiB = [spin_2x, spin_2y, spin_2z]
+        mf, mf_err = fit.mf(q, chiA, chiB) # remnant mass and 1-sigma error estimate - need to check what unit this is in biztodo
+        return mf * (m1 + m2) #as mf here is a fraction.
+    else:
+        mf = remnant_mass_simple(m1,m2,eps_rad=0.05) #revert back to simple model for mass ratio not trained on. 
+        return mf #as mf is a fraction. 
+
+#Combined Kick fit
+def Vkick_NRfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
+    mass_ratio = m1/m2
+    if mass_ratio <= 6:
+        Vkick = Vkick_NRSURfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12)
+    else:
+        Vkick = Vkick_RIT(m1,m2,chi1,chi2,costilt1,costilt2,phi12)
+    return Vkick 
+ 
+
+#m1 and m2 calculations 
+def m1_m2_from_chirp_q(chirp_mass, q):
+    """
+    Calculate m1 and m2 from chirp mass and mass ratio - for calculations of remnant mass
+    biztodo if this works put into python file for use in other scripts
+    """
+
+    m1_raw = chirp_mass * (1 + q)**(1/5) / (q**(3/5))
+    m2_raw = m1_raw * q
+
+    m1 = np.maximum(m1_raw, m2_raw)  # Ensure m1 is the larger mass
+    m2 = np.minimum(m1_raw, m2_raw)  # Ensure m2 is the smaller mass   - this should always be true based on how I have defined the equations 
+
+    return m1, m2 #in solar masses 
+
+#############################################################
+#luminosity calculations - to include these in the plotting #
+#############################################################
+    #from chen and dai
+
+def jet_luminosity(Mdot, eta_jet):
+    """
+    Calculate the jet luminosity based on the mass accretion rate and efficiency.
+    in cgs units 
+    so luminosity is returned in erg/s, Mdot needs to be in cgs etc
+    """
+    c = const.c.cgs.value  # Speed of light in cm/s (ie cgs units) 
+    Mdot_cgs = Mdot  # Mdot is already in cgs units (g/s) from bhl_rate_g_per_s function 
+    L_jet = eta_jet * Mdot_cgs * c**2 
+    return L_jet
+
+def cocoon_energy(Mdot, eta_jet, t_breakout, H):
+    """
+    Calculating cocoon energy from the jet
+    want everything in cgs again
+    estimating v_jh/c is 0.1 so jet velocity is currently not needed 
+    t_breakout is something calculated earlier - needs jet head velocity. 
+    Mdot in cgs units from bhl_rate_g_per_s function, eta_jet is 0.1 for now
+    """
+    c = const.c.cgs.value
+    beta_h = 3 * H / (5 * t_breakout * c) #new version of beta
+    c = const.c.cgs.value
+    L_jet = jet_luminosity(Mdot, eta_jet)
+    E_cocoon = L_jet * t_breakout * (1 - (beta_h * t_breakout)) 
+    return E_cocoon
+
+
+
+def cocoon_luminosity_chen(Mdot, rho_agn, H, eta_jet, t_breakout):
+    """
+    Calculating the jet luminosity based on eq 29 of chen and dai 
+
+    f_FB = 0.1 following Nakar & Piran (2017)
+    kappa = 0.34 cm^2/g electron scattering opacity 
+    volume of cocoon V_cj = pi * (0.1*H)**2 * H 
+    E_c is calculated above - so I need to estimate breakout time and jet velocity to get this 
+    m_cj = rho_agn * V_cj
+
+    H is in cm 
+    rho agn in g/cm^3 ?? - need to check 
+    """  
+    c = const.c.cgs.value
+    E_cocoon = cocoon_energy(Mdot, eta_jet=0.1, t_breakout=t_breakout, H=H)
+    f_FB = 0.1
+    kappa = 0.34  # cm^2/g
+    H = H  # cm, height of the AGN disk
+    V_cj = np.pi * (0.05 * H)**2 * H #volume of the cocoon, assuming a cylindrical shape with radius 0.05H and height H - could change this if needed
+    rho_agn = rho_agn  # g/cm^3, density of the AGN disk
+    m_cj = rho_agn * V_cj 
+
+    L_cocoon = 2 * np.pi * c * f_FB * E_cocoon * (V_cj)**(1/3) / (kappa * m_cj)
+
+    return L_cocoon
+
+
+# simple 
+
+import numpy as np
+from scipy.constants import c
+from astropy.cosmology import Planck18
+
+c = c * 100.0
+
+G = 6.6743e-8
+MSUN = 1.98847e33
+
+
+def mdot_bhl(mass,rho_agn,vk,cs,):
+
+    m = mass * MSUN #converting from Msun to grams 
+
+    return (4* np.pi* G**2 * m**2 * rho_agn /(vk**2 +cs**2)**1.5) 
+
+
+def jet_power(mass,rho_agn,vk,cs,f_bz=0.1,):
+
+    return (f_bz * mdot_bhl(mass, rho_agn, vk, cs) * c**2)
+
+
+def cocoon_luminosity(mass,rho_agn,vk,cs,epsilon_x=0.03,):
+
+    return (epsilon_x*jet_power(mass,rho_agn,vk,cs,))
+
+
+def cocoon_temperature_keV(mass, rho_agn, vk, cs):
+
+    Lj = jet_power(mass, rho_agn, vk, cs)
+
+    return (1.0 * ( Lj / 1e44 )**0.15)
+
+
+def cocoon_duration(mass, rho_agn, vk, cs):
+
+    Lj = jet_power(mass, rho_agn, vk, cs)
+
+    return (1000.0 * ( Lj / 1e44)**(-0.2))
+
+
+####################### back to time delay calculations     
 
 def bhl_radius_cm(M_total_msun, vk_kms, cs_kms):
     """
@@ -134,7 +297,7 @@ def cavity_radius_cm(
     - "none": no cavity, r_cav = 0
     - "min_bhl_hill": r_cav = min(r_BHL, r_Hill)
     - "0.6H": r_cav = 0.6 H
-    - float/int: user-supplied radius in cm
+    - float/int: supplied radius in cm
     """
     if mode == "none":
         return 0.0
@@ -164,7 +327,7 @@ def t_kick_s(r_cav_cm, vk_kms):
     return r_cav_cm / vk
 
 
-def t_bhl_s(M_rem_msun, vk_kms, cs_kms, n_acc=3.0, use_v_eff=False):
+def t_bhl_s(M_rem_msun, vk_kms, cs_kms, n_acc=1.0, use_v_eff=False):
     """
     Jet-formation/accretion timescale.
 
@@ -187,18 +350,18 @@ def t_bhl_s(M_rem_msun, vk_kms, cs_kms, n_acc=3.0, use_v_eff=False):
     return n_acc * r_bhl / v_cross
 
 
-def t_exit_disk_s(H_cm, vk_kms):
-    """
-    Approximate minimum time for kicked remnant to leave the AGN disk:
-        t_exit ~ H / v_k
 
-    Useful as a consistency check:
-        jet formation inside the disk requires t_BHL < t_exit.
-
-    biztodo: check if this is necessary? could leave for now
+def t_breakout_s(H, rho_agn, M_rem_msun, eta_jet, vk_kms, cs_kms, theta_0=0.17):
     """
-    vk = vk_kms * KM_CGS
-    return H_cm / vk
+    Jet breakout timescale, from Chen & Dai eq 14, and the assumptions in Bromberg et all (2011)
+        breakout occurs when the jet head reaches the scale height of the disk, H
+        Mdot in solar masses, eta jet is 0.1 for now
+    """
+    Mdot = bhl_rate_g_per_s(M_rem_msun, rho_agn, vk_kms, cs_kms)
+    luminosity_jet = jet_luminosity(Mdot, eta_jet) 
+    t_bre = (3/5) * H**(5/3) * (rho_agn * theta_0 / luminosity_jet)**(1/3) 
+
+    return t_bre
 
 
 def total_delay_s(
@@ -209,10 +372,10 @@ def total_delay_s(
     rho_agn,
     vk_kms,
     cs_kms,
+    eta_jet=0.1,
+    theta_0=0.17,
     cavity_mode="min_bhl_hill",
-    n_acc=3.0,
-    t_breakout_s=0.0,
-    t_diff_s=0.0,
+    n_acc=1.0,
     use_v_eff_for_t_bhl=False
 ):
     """
@@ -242,192 +405,16 @@ def total_delay_s(
         use_v_eff=use_v_eff_for_t_bhl
     )
 
-    return tkick + tbhl + t_breakout_s + t_diff_s
+    
+    c = 2.99792458e10 # speed of light in cm/s
+    kappa = 0.34 # opacity in cm^2/g, electron scattering opacity 
+
+    t_breakout = t_breakout_s(H=H_cm, rho_agn=rho_agn, M_rem_msun=M_rem_msun, vk_kms=vk_kms, cs_kms=cs_kms, eta_jet=0.1, theta_0=0.17) #jet breakout timescale, from Chen & Dai eq 14, and the assumptions in Bromberg et all (2011)
+
+    beta_h = 3 * H_cm / (5 * t_breakout * c) #jet head velocity, from Chen and Dai eq 14, and the assumptions in Bromberg et all (2011)
+
+    t_diff_s = 1 / (kappa * rho_agn * beta_h**2 * c) # eq 15 in Chen and Dai 
+
+    return tkick + tbhl + t_breakout + t_diff_s
 
 
-def total_delay_days(*args, **kwargs):
-    return total_delay_s(*args, **kwargs) / DAY_CGS #converting time into days (for comparison)
-
-"""
-Code from partapratim below: 
-- including the spin kick into the kick velocity 
-- including a remnant fit from lalsimulation 
-"""
-
-'''
-This paper (https://arxiv.org/pdf/2106.07179) uses the RIT fit. However, a more accurate fit, the NRSurrogate fit, is now available, although it is currently valid only for mass ratios up to 6. 
-In recent paper (https://arxiv.org/pdf/2406.06390), we use the NRSurrogate fit for mass ratios (\leq 6) and the RIT fit for mass ratios (> 6).
-The NRSurrogate fit is available through the surfinBH package (I recommend installing it via conda install -c conda-forge surfinbh), while the RIT fit is now implemented in the precession package (which can be installed using pip install precession).
-For your convenience, I've shared a code snippet below for computing the recoil (kick) velocity. Please feel free to modify it as needed.
-'''
-
-import numpy as np
-import precession
-import surfinBH
-
-#Vkick RIT
-def Vkick_RIT(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
-    q = m2/m1 #mass ratio using here is heavier/lighter, so q <= 1. may need to put in assurances that this will be the case? 
-    Vrecoil = precession.remnantkick(np.arccos(costilt1),np.arccos(costilt2),phi12,q,chi1,chi2,kms=True,full_output=False)
-    return Vrecoil #this is in km/s
-
-#NRSURROGATE Fit
-def cartesian_spin_components(chi1,chi2,tilt1,tilt2,phi12):
-    spin_1x=chi1*np.sin(tilt1)
-    spin_1y=0.
-    spin_1z=chi1*np.cos(tilt1)
-    spin_2x=chi2*np.sin(tilt2)*np.cos(phi12)
-    spin_2y=chi2*np.sin(tilt2)*np.sin(phi12)
-    spin_2z=chi2*np.cos(tilt2)
-    return spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z
-
-fit_name = 'NRSur7dq4Remnant'
-fit = surfinBH.LoadFits(fit_name)
-
-#NRSUR Vkick
-def Vkick_NRSURfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
-    cc = 2.99792458e5
-    q = m1/m2
-    spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = cartesian_spin_components(chi1,chi2,np.arccos(costilt1),np.arccos(costilt2),phi12)
-    chiA = [spin_1x, spin_1y, spin_1z]
-    chiB = [spin_2x, spin_2y, spin_2z]
-    vf, vf_err = fit.vf(q, chiA, chiB) # remnant recoil kick and 1-sigma error estimate (units of c) this bit is in units of c. 
-    return cc*np.sqrt((vf[0])**2.0 + (vf[1])**2.0 + (vf[2])**2.0) #now been converted into kms units - *c
-
-#NRSUR Remnant Mass
-def Mrem_NRSURfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
-    q = m1/m2
-    if q <= 6:
-        spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = cartesian_spin_components(chi1,chi2,np.arccos(costilt1),np.arccos(costilt2),phi12)
-        chiA = [spin_1x, spin_1y, spin_1z]
-        chiB = [spin_2x, spin_2y, spin_2z]
-        mf, mf_err = fit.mf(q, chiA, chiB) # remnant mass and 1-sigma error estimate - need to check what unit this is in biztodo
-        return mf
-    else:
-        mf = remnant_mass_simple(m1,m2,eps_rad=0.05) #revert back to simple model for mass ratio not trained on. 
-        return mf
-
-#Combined Kick fit
-def Vkick_NRfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
-    mass_ratio = m1/m2
-    if mass_ratio <= 6:
-        Vkick = Vkick_NRSURfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12)
-    else:
-        Vkick = Vkick_RIT(m1,m2,chi1,chi2,costilt1,costilt2,phi12)
-    return Vkick
- 
-
-#m1 and m2 calculations 
-def m1_m2_from_chirp_q(chirp_mass, q):
-    """
-    Calculate m1 and m2 from chirp mass and mass ratio - for calculations of remnant mass
-    biztodo if this works put into python file for use in other scripts
-    """
-
-    m1 = chirp_mass * (1 + q)**(1/5) / (q**(3/5))
-    m2 = m1 * q
-
-    m1 = np.maximum(m1, m2)  # Ensure m1 is the larger mass
-    m2 = np.minimum(m1, m2)  # Ensure m2 is the smaller mass   - this should always be true based on how I have defined the equations 
-
-    return m1, m2 #in solar masses 
-
-
-    #luminosity calculations - to include these in the plotting 
-
-    #from chen and dai
-
-def jet_luminosity(Mdot, eta_jet=0.1):
-    """
-    Calculate the jet luminosity based on the mass accretion rate and efficiency.
-    in cgs units 
-    so luminosity is returned in erg/s, Mdot needs to be in cgs etc
-    """
-    c = const.c.cgs.value  # Speed of light in cm/s (ie cgs units) 
-    Mdot_cgs = Mdot*const.M_sun.cgs.value  # Convert to cgs units 
-    L_jet = eta_jet * Mdot_cgs * c**2 
-    return L_jet
-
-def cocoon_energy(Mdot, eta_jet=0.1, t_breakout=1e10):
-    """
-    Calculating cocoon energy from the jet
-    want everything in cgs again
-    estimating v_jh/c is 0.1 so jet velocity is currently not needed 
-    t_breakout is something calculated earlier 
-    Mdot in soalr masses still -m conversion is done in jet luminosity function
-    """
-    c = const.c.cgs.value
-    L_jet = jet_luminosity(Mdot, eta_jet)
-    E_cocoon = L_jet * t_breakout * (1 - (0.1))  # estimating v_jh/c is 0.1 Figure 4 suggests that the jet heads are typically Newtonian and have velocities much smaller than c.
-    return E_cocoon
-
-
-
-def cocoon_luminosity_chen(Mdot, rho_agn, H, eta_jet=0.1, t_breakout=1e10):
-    """
-    Calculating the jet luminosity based on eq 29 of chen and dai 
-
-    f_FB = 0.1 following Nakar & Piran (2017)
-    kappa = 0.34 cm^2/g electron scattering opacity 
-    volume of cocoon V_cj = pi * (0.1*H)**2 * H 
-    E_c is calculated above - so I need to estimate breakout time and jet velocity to get this 
-    m_cj = rho_agn * V_cj
-
-    H is in cm 
-    rho agn in g/cm^3 ?? - need to check 
-    """  
-    c = const.c.cgs.value
-    E_cocoon = cocoon_energy(Mdot, eta_jet=0.1, t_breakout=t_breakout)
-    f_FB = 0.1
-    kappa = 0.34  # cm^2/g
-    H = H  # cm, height of the AGN disk
-    V_cj = np.pi * (0.1 * H)**2 * H
-    rho_agn = rho_agn  # g/cm^3, density of the AGN disk
-    m_cj = rho_agn * V_cj 
-
-    L_cocoon = 2 * np.pi * c * f_FB * E_cocoon * (V_cj)**(1/3) / (kappa * m_cj)
-
-    return L_cocoon
-
-
-# simple 
-
-import numpy as np
-from scipy.constants import c
-from astropy.cosmology import Planck18
-
-c = c * 100.0
-
-G = 6.6743e-8
-MSUN = 1.98847e33
-
-
-def mdot_bhl(mass,rho_agn,vk,cs,):
-
-    m = mass * MSUN #converting from Msun to grams 
-
-    return (4* np.pi* G**2 * m**2 * rho_agn /(vk**2 +cs**2)**1.5) 
-
-
-def jet_power(mass,rho_agn,vk,cs,f_bz=0.1,):
-
-    return (f_bz * mdot_bhl(mass, rho_agn, vk, cs) * c**2)
-
-
-def cocoon_luminosity(mass,rho_agn,vk,cs,epsilon_x=0.03,):
-
-    return (epsilon_x*jet_power(mass,rho_agn,vk,cs,))
-
-
-def cocoon_temperature_keV(mass, rho_agn, vk, cs):
-
-    Lj = jet_power(mass, rho_agn, vk, cs)
-
-    return (1.0 * ( Lj / 1e44 )**0.15)
-
-
-def cocoon_duration(mass, rho_agn, vk, cs):
-
-    Lj = jet_power(mass, rho_agn, vk, cs)
-
-    return (1000.0 * ( Lj / 1e44)**(-0.2))
