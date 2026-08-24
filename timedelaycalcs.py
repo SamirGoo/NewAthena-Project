@@ -102,11 +102,11 @@ def Mrem_NRSURfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
         spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = cartesian_spin_components(chi1,chi2,np.arccos(costilt1),np.arccos(costilt2),phi12)
         chiA = [spin_1x, spin_1y, spin_1z]
         chiB = [spin_2x, spin_2y, spin_2z]
-        mf, mf_err = fit.mf(q, chiA, chiB) # remnant mass and 1-sigma error estimate - need to check what unit this is in biztodo
-        return mf * (m1 + m2) #as mf here is a fraction.
+        mf, mf_err = fit.mf(q, chiA, chiB) # remnant mass and 1-sigma error estimate
+        return mf * (m1 + m2) #as mf here is a fraction. check that this is not too long 
     else:
         mf = remnant_mass_simple(m1,m2,eps_rad=0.05) #revert back to simple model for mass ratio not trained on. 
-        return mf #as mf is a fraction. 
+        return mf 
 
 #Combined Kick fit
 def Vkick_NRfit(m1,m2,chi1,chi2,costilt1,costilt2,phi12):
@@ -270,51 +270,15 @@ def bhl_rate_g_per_s(M_rem_msun, rho_agn, vk_kms, cs_kms):
 
     return 4.0 * np.pi * G_CGS**2 * M**2 * rho_agn / v_eff_sq**(3/2)
 
+#cavity radius - estimating to be 0.6H 
 
-def hill_radius_cm(M_rem_msun, M_smbh_msun, R_cm):
+def cavity_radius_cm_06H(H_cm):
     """
-    Hill radius:
-        r_Hill = R * (M_rem / (3 M_SMBH))^(1/3)
-        can be approximated to 0.6H where H is the scale height of the disk
+    Cavity radius:
+        r_cav = 0.8 H
+        H is the scale height of the disk
     """
-    return R_cm * (M_rem_msun / (3.0 * M_smbh_msun))**(1.0 / 3.0)
-
-
-def cavity_radius_cm(
-    M_rem_msun,
-    M_smbh_msun,
-    R_cm,
-    H_cm,
-    vk_kms,
-    cs_kms,
-    mode="min_bhl_hill"
-):
-    """
-    Alternative prescriptions for the cavity radius.
-    Options for how the cavity radius it set, if it is set, etc biztodo: is this overkill/ just set to 0.8H for now/ find a better prescription 
-
-    mode options:
-    - "none": no cavity, r_cav = 0
-    - "min_bhl_hill": r_cav = min(r_BHL, r_Hill)
-    - "0.6H": r_cav = 0.6 H
-    - float/int: supplied radius in cm
-    """
-    if mode == "none":
-        return 0.0
-
-    if isinstance(mode, (float, int)):
-        return float(mode)
-
-    r_bhl = bhl_radius_cm(M_rem_msun, vk_kms, cs_kms)
-    r_hill = hill_radius_cm(M_rem_msun, M_smbh_msun, R_cm)
-
-    if mode == "min_bhl_hill":
-        return np.minimum(r_bhl, r_hill)
-
-    if mode == "0.6H":
-        return 0.6 * H_cm
-
-    raise ValueError(f"Unknown cavity mode: {mode}")
+    return 0.6 * H_cm
 
 # Timescales
 
@@ -327,7 +291,7 @@ def t_kick_s(r_cav_cm, vk_kms):
     return r_cav_cm / vk
 
 
-def t_bhl_s(M_rem_msun, vk_kms, cs_kms, n_acc=1.0, use_v_eff=False):
+def t_bhl_s(M_rem_msun, vk_kms, cs_kms, n_acc=1.0, use_v_eff=True):
     """
     Jet-formation/accretion timescale.
 
@@ -337,7 +301,7 @@ def t_bhl_s(M_rem_msun, vk_kms, cs_kms, n_acc=1.0, use_v_eff=False):
     n_acc accounts for 'a few' BHL/accretion times. - biz may need to change the n_acc value, if I can find a value here which would work better - compare results which come out and see what this needs to be 
     If use_v_eff=True, divide by sqrt(v_k^2 + c_s^2) instead of v_k. biztodo check where this effictive value is coming from (not going to use yet)
     """
-    r_bhl = bhl_radius_cm(M_rem_msun, vk_kms, cs_kms)
+    r_bhl = bhl_radius_cm(M_rem_msun, vk_kms, cs_kms) #needs total mass not remnant mass  - check what units it wants 
 
     vk = vk_kms * KM_CGS
     cs = cs_kms * KM_CGS
@@ -367,16 +331,14 @@ def t_breakout_s(H, rho_agn, M_rem_msun, eta_jet, vk_kms, cs_kms, theta_0=0.17):
 def total_delay_s(
     M_rem_msun,
     M_smbh_msun,
-    R_cm,
     H_cm,
     rho_agn,
     vk_kms,
     cs_kms,
     eta_jet=0.1,
     theta_0=0.17,
-    cavity_mode="min_bhl_hill",
     n_acc=1.0,
-    use_v_eff_for_t_bhl=False
+    use_v_eff_for_t_bhl=True
 ):
     """
     Total delay:
@@ -386,14 +348,8 @@ def total_delay_s(
     together with luminosity/detectability, but in this simple t_BHL
     prescription rho_agn does not enter the delay directly.
     """
-    r_cav = cavity_radius_cm( #biztodo: check with the cavity radius bit, if this is overkill replace with prescription here
-        M_rem_msun=M_rem_msun,
-        M_smbh_msun=M_smbh_msun,
-        R_cm=R_cm,
-        H_cm=H_cm,
-        vk_kms=vk_kms,
-        cs_kms=cs_kms,
-        mode=cavity_mode
+    r_cav = cavity_radius_cm_06H( #biztodo: check with the cavity radius bit, if this is overkill replace with prescription here
+        H_cm=H_cm
     )
 
     tkick = t_kick_s(r_cav, vk_kms) #cavity crossing time, if there is a cavity. 
@@ -415,6 +371,6 @@ def total_delay_s(
 
     t_diff_s = 1 / (kappa * rho_agn * beta_h**2 * c) # eq 15 in Chen and Dai 
 
-    return tkick + tbhl + t_breakout + t_diff_s
+    return tkick + tbhl + t_diff_s + t_breakout
 
 
