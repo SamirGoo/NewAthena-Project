@@ -1,8 +1,4 @@
-#plotting for the poster
-
-#define 3 scenarios for AGN.
-#use isobels code for agn modelling
-
+#Plotting for the poster 
 import GWFish.modules as gw
 import pandas as pd
 from astropy.cosmology import Planck18
@@ -17,7 +13,6 @@ import timedelaycalcs as df
 # Import file of AGN model
 
 import agn_model as agn
-
 
 # Scenarios 
 
@@ -47,39 +42,23 @@ disk2 = agn.get_agn_model(mbh=scenario_2["Mbh"], le=scenario_2["le"], alpha=scen
 
 disk3 = agn.get_agn_model(mbh=scenario_3["Mbh"], le=scenario_3["le"], alpha=scenario_3["alpha"])
 
-# for each of these i have disk.rho and disk.cs which are functions of radius.
-# Assuming that all the mergers happen at the same radius 
-
-R_rs = 1000  #10-10^6 in Chen, 10^2-10^3 schw radius? so using 1000 for now
-
-disk1_rho = np.interp(R_rs, disk1.R/disk1.Rs, disk1.rho)
-disk1_cs = np.interp(R_rs, disk1.R/disk1.Rs, disk1.cs) / 1000 #converting to kms as this is needed for later
-disk2_rho = np.interp(R_rs, disk2.R/disk2.Rs, disk2.rho)
-disk2_cs = np.interp(R_rs, disk2.R/disk2.Rs, disk2.cs) / 1000
-disk3_rho = np.interp(R_rs, disk3.R/disk3.Rs, disk3.rho)
-disk3_cs = np.interp(R_rs, disk3.R/disk3.Rs, disk3.cs) / 1000
-
-# print("Disk 1 rho:", disk1_rho)
-# print("Disk 1 cs:", disk1_cs)
-# print("Disk 2 rho:", disk2_rho)
-# print("Disk 2 cs:", disk2_cs)
-# print("Disk 3 rho:", disk3_rho)
-# print("Disk 3 cs:", disk3_cs)
-
-#now we have AGN params to use later. Now need to repeat the time delay calcs for each of these scenarios 
-
-#Setting params
+R_rs = 100  #10-10^6 in Chen, 10^2-10^3 schw radius? so using 100 for now - reducing to 100 
 
 from scipy.stats import qmc
 
-sampler = qmc.LatinHypercube(d=5)
-sample = sampler.random(n=200) #increasing to 200 as only doing 3 disk scenarios. 
+sampler = qmc.LatinHypercube(d=8)
+sample = sampler.random(n=25) #back to 25 samples for now 
 
-M = 50 + sample[:,0]*(1000-50)
+M = 50 + sample[:,0]*(400-20)
 Q = 0.25 + sample[:,1]*(0.95-0.25)
 S1 = sample[:,2]*0.9
 S2 = sample[:,3]*0.9
 Z = 2.0 + sample[:,4]*(2.5-2.0) #redshift range from 2.0 to 2.5, to be within isobels ranges
+
+#sampling for orientations 
+costilt1 = -1.0 + sample[:,0]*2.0 #cos(theta) from -1 to 1
+costilt2 = -1.0 + sample[:,1]*2.0 #cos(theta) from -1 to 1
+phi12 = 0.0 + sample[:,2]*(2.0*np.pi) #phi from 0 to 2pi
 
 N = M.size
 
@@ -97,9 +76,10 @@ parameters = {
     'a_2':S2.flatten(), 
     'lambda_1':np.full(N, 0), 
     'lambda_2':np.full(N, 0),
-    'tilt_1': np.full(N, 0), #testing aligned spins first, so costilt1 = 1, tilt1 = 0, tilt2 = 0, phi12 = 0
-    'tilt_2': np.full(N, 0),
-    'phi_12': np.full(N, 0)}
+    'tilt_1': np.arccos(costilt1.flatten()), #now trying grid of alignment 
+    'tilt_2': np.arccos(costilt2.flatten()),
+    'phi_12': phi12.flatten()
+    }
 parameters = pd.DataFrame(parameters)
 parameters
 
@@ -107,7 +87,7 @@ parameters
 from GWFish.modules.waveforms import LALFD_Waveform
 
 waveform_class = LALFD_Waveform
-waveform_name = "IMRPhenomXAS"
+waveform_name = "IMRPhenomXPHM"
 f_ref = 10.
 
 fisher_parameters = ['chirp_mass', 'mass_ratio', 'a_1', 'a_2' ]
@@ -129,7 +109,6 @@ for i in range(N):
             save_matrices_path = f'outputs/gwfishMQSpin/poster/source_{i}' #Mass Ratio, Chirp Mass, Spins outputs 
             ) 
 
-#looping over detectors and sources to get samples for each param
 chirp_mass_samples = []
 mass_ratio_samples = []
 chirp_mass_covariances = []
@@ -156,12 +135,6 @@ for i in range(len(parameters)):
     a_1_covariances.append(np.sqrt(C_i[2,2]))
     a_2_covariances.append(np.sqrt(C_i[3,3]))
 
-#
-costilt1 = 1.0 #defining this based on the values in the dataframe, could include them in the loop if needed later on
-costilt2 = 1.0
-phi12 = 0.0
-
-#At this point, looping over samples and computing the time delays for each of the 3 scenarios
 
 summaries = []
 
@@ -171,7 +144,6 @@ mass_smbh = [1e7, 1e8, 1e9] #in solar masses for each disk scenario
 
 for source_idx in range(len(chirp_mass_samples)):
     
-
     for disk, disk_name, m_smbh in [(disk1, "disk1", mass_smbh[0]), (disk2, "disk2", mass_smbh[1]), (disk3, "disk3", mass_smbh[2])]:
 
         chirp_samples = chirp_mass_samples[source_idx]
@@ -189,11 +161,17 @@ for source_idx in range(len(chirp_mass_samples)):
         luminosity_chen_samples = []
         luminosity_simple_samples = []
 
-        H = disk.Rs * 0.1 #assuming H = 0.1 Rs for all scenarios, could change this to be a function of the disk params if needed
         rho_agn = np.interp(R_rs, disk.R/disk.Rs, disk.rho)
-        c_s = np.interp(R_rs, disk.R/disk.Rs, disk.cs) / 1000 #converting to kms
+        c_s = np.interp(R_rs, disk.R/disk.Rs, disk.cs) #in cms 
+
+        omega_k = np.sqrt(const.G * m_smbh * const.M_sun / ((R_rs*disk.Rs)**3) ) #in s^-1, using the mass of the SMBH for each disk scenario, and the R-rs 
+        H = c_s / omega_k.value #in cm, using the sound speed and the keplerian angular velocity to get the scale height of the disk
 
         M_smbh = m_smbh
+
+        c1_src = np.cos(parameters.iloc[source_idx]["tilt_1"])
+        c2_src = np.cos(parameters.iloc[source_idx]["tilt_2"])
+        ph_src = parameters.iloc[source_idx]["phi_12"]
 
         for chirp, q, chi1, chi2 in zip(chirp_samples, mass_ratio_samples_source, a_1_samples_source, a_2_samples_source):
 
@@ -207,31 +185,21 @@ for source_idx in range(len(chirp_mass_samples)):
                 continue
 
             m1, m2 = df.m1_m2_from_chirp_q(chirp, q)
-            M_rem = df.Mrem_NRSURfit(m1, m2, chi1, chi2, costilt1=costilt1, costilt2=costilt2, phi12=phi12)
-            Vkick = df.Vkick_NRfit(m1, m2, chi1, chi2, costilt1=costilt1, costilt2=costilt2, phi12=phi12)
-            chi_eff = (m1 * chi1 * costilt1 + m2 * chi2 * costilt2) / (m1 + m2) #calculating effective spin param for each sample
+            M_rem = df.Mrem_NRSURfit(m1, m2, chi1, chi2, costilt1=c1_src, costilt2=c2_src, phi12=ph_src)
+            Vkick = df.Vkick_NRfit(m1, m2, chi1, chi2, costilt1=c1_src, costilt2=c2_src, phi12=ph_src)
+            chi_eff = (m1 * chi1 * c1_src + m2 * chi2 * c2_src) / (m1 + m2) #calculating effective spin param for each sample
 
-            r_cav = df.cavity_radius_cm(
+            t_delay = df.total_delay_s(  #retuns in seconds 
                 M_rem_msun=M_rem,
                 M_smbh_msun=M_smbh,
-                R_cm=1e16,
-                H_cm=H,
-                vk_kms=Vkick,
-                cs_kms=c_s,
-                mode="0.6H"
-            )
-            t_delay = df.total_delay_s( 
-                M_rem_msun=M_rem,
-                M_smbh_msun=M_smbh,
-                R_cm=1e16,
                 H_cm=H,
                 rho_agn=rho_agn, 
-                vk_kms=Vkick,
-                cs_kms=c_s,
+                vk_kms=Vkick, #already in km/s
+                cs_kms=c_s/1e5, #convert to km/s for the function
                 eta_jet=0.1,
                 theta_0=0.17,
-                cavity_mode="0.6H",
-                n_acc=1.0
+                n_acc=1.0,
+                use_v_eff_for_t_bhl=True
             )
 
             remnant_mass_samples.append(M_rem)
@@ -242,10 +210,10 @@ for source_idx in range(len(chirp_mass_samples)):
             rho_samples.append(rho_agn)
 
             #luminosity calculations below: 
-            Mdot = df.bhl_rate_g_per_s(M_rem, rho_agn=rho_agn, vk_kms=Vkick, cs_kms=c_s) #mrem here needs to be in solar masses
-            luminosity_chen = df.cocoon_luminosity_chen(Mdot,rho_agn=rho_agn, H=H, eta_jet=0.1, t_breakout=df.t_breakout_s(H, rho_agn, M_rem, vk_kms=Vkick, cs_kms=c_s, eta_jet=0.1, theta_0=0.17))
+            Mdot = df.bhl_rate_g_per_s(M_rem, rho_agn=rho_agn, vk_kms=Vkick, cs_kms=(c_s/1e5)) #mrem here needs to be in solar masses
+            luminosity_chen = df.cocoon_luminosity_chen(Mdot,rho_agn=rho_agn, H=H, eta_jet=0.1, t_breakout=df.t_breakout_s(H, rho_agn, M_rem, vk_kms=Vkick, cs_kms=(c_s/1e5), eta_jet=0.1, theta_0=0.17))
 
-            luminosity_simple = df.cocoon_luminosity(M_rem, rho_agn, Vkick, cs=c_s)  #i think mrem here also needs to be in solar masses
+            luminosity_simple = df.cocoon_luminosity(M_rem, rho_agn, Vkick, cs=(c_s/1e5))  #i think mrem here also needs to be in solar masses
 
             luminosity_chen_samples.append(luminosity_chen)
             luminosity_simple_samples.append(luminosity_simple)
@@ -302,17 +270,18 @@ for source_idx in range(len(chirp_mass_samples)):
             "Mrem_p84": Mrem_p84, 
             "H": median_H,
             "rho_agn": median_rho,
-            "luminosity_chen": luminosity_chen_median,
-            "chen_p16": luminosity_chen_p16,
-            "chen_p84": luminosity_chen_p84,
-            "luminosity_simple": luminosity_simple_median,
-            "simple_p16": luminosity_simple_p16,
-            "simple_p84": luminosity_simple_p84
+            "luminosity_chen": np.abs(luminosity_chen_median), #taking absolute for plotting. todo - work out why this is happening? 
+            "chen_p16": np.abs(luminosity_chen_p16),
+            "chen_p84": np.abs(luminosity_chen_p84),
+            "luminosity_simple": np.abs(luminosity_simple_median),
+            "simple_p16": np.abs(luminosity_simple_p16),
+            "simple_p84": np.abs(luminosity_simple_p84)
         })
 
 summary = pd.DataFrame(summaries)
 
-#plotting with these summary values 
+
+#now do the plotting below 
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
