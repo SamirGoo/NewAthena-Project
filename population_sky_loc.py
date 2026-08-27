@@ -7,6 +7,8 @@ import pandas as pd
 import pathlib
 import os
 
+from glob import glob
+
 import bilby as bb
 import matplotlib
 import matplotlib.pylab as plt
@@ -36,9 +38,10 @@ athena = AthenaWFI(
 )
 
 base_dir = "."
-regenerate = True
+regenerate = False
 
 N_pop = 100000
+label = "2"
 
 if regenerate:
 
@@ -61,10 +64,11 @@ if regenerate:
     prior['luminosity_distance'].minimum = 50
     prior['luminosity_distance'].maximum = 25924.2 # z = 3, 47647.9 for z = 5, 106192.4 for z = 10, probably need to decrease for more detectable sources
     prior['SMBH_mass'] = bb.prior.LogUniform(name='SMBH_mass', minimum=1e6, maximum=1e10)
-    prior['fractional_r'] = bb.prior.LogUniform(name='fractional_r', minimum=1e-10, maximum=1)
+    prior['fractional_r'] = bb.prior.LogUniform(name='fractional_r', minimum=1e-10, maximum=0.5)
     prior['geocent_time'] = bb.prior.Uniform(name='geocent_time', minimum=0, maximum=np.pi * 10**7)
 
     _pop_samples = prior.sample(N_pop)
+    print(_pop_samples['SMBH_mass'])
     _pop_samples['total_mass'] = bb.gw.conversion.chirp_mass_and_mass_ratio_to_total_mass(_pop_samples['chirp_mass'], _pop_samples['mass_ratio'])
     _pop_samples['redshift'] = bb.gw.conversion.luminosity_distance_to_redshift(_pop_samples['luminosity_distance'])
     _pop_samples['mass_1'], _pop_samples['mass_2'] = bb.gw.conversion.chirp_mass_and_mass_ratio_to_component_masses(_pop_samples['chirp_mass'], _pop_samples['mass_ratio'])
@@ -108,24 +112,45 @@ if regenerate:
 
     pop_samples['total_mass'] = total_mass.tolist()
 
-    with open("data.json", "w") as f:
+    with open("data_{}.json".format(label), "w") as f:
         for key in results:
             results[key] = results[key].tolist()
         data = {"pop_samples": pop_samples, "results": results}
         json.dump(data, f)
 
 else:
+    data_file_list = ["data_0.json", "data_1.json", "data_2.json"]
+    data = {"pop_samples": {}, "results": {}}
+    for data_file in data_file_list:
+        with open(data_file, "r") as f:
+            _data = json.load(f)
+            print(_data.keys())
+            for key in _data["pop_samples"].keys():
+                try:
+                    data["pop_samples"][key] = np.concatenate([data["pop_samples"][key], _data["pop_samples"][key]])
+                except:
+                    data["pop_samples"][key] = _data["pop_samples"][key]
+                print(key, len(data["pop_samples"][key]))
+            for key in _data["results"].keys():
+                try:
+                    data["results"][key] = np.concatenate([data["results"][key], _data["results"][key]])
+                except:
+                    data["results"][key] = _data["results"][key]
+                print(key, len(data["results"][key]))
 
-    with open("data.json", "r") as f:
-        data = json.load(f)
+print(len(data['results']['sky_percentiles_90']))
+print(len(data["pop_samples"]['total_mass']))
 
 print(len(data['pop_samples']['total_mass'])/N_pop)
 print(len(data['results']['sky_percentiles_90'])/N_pop)
 
 
-detected_idxs_3G = data['results']['detected_idxs']
+detected_idxs_3G = [int(d) for d in data['results']['detected_idxs']]
+
 within_WFI_map = np.array(data['results']['sky_percentiles_90'])[detected_idxs_3G] < 0.7
 within_10deg_map = np.array(data['results']['sky_percentiles_90'])[detected_idxs_3G] < 10
+
+print(len(detected_idxs_3G))
 
 
 print("fraction of detectable with sky area fully in WFI:",
@@ -142,10 +167,10 @@ plt.colorbar(label='Network SNR')
 plt.axhline(0.7, label='NewAthena WFI span (single tiling)', color='k', ls='--')
 plt.axhline(10, label='10 deg$^2$', color='k', ls=':')
 plt.legend(loc='upper left')
-plt.xlabel('total mass [M$_\odot$]')
+plt.xlabel('Binary total mass [M$_\odot$]')
 plt.ylabel('90% sky loc [deg$^2$]')
 plt.xscale('log')
 plt.yscale('log')
-plt.savefig('Mt_vs_sky_loc.pdf')
+plt.savefig('Mt_vs_sky_loc.png', transparent=True, dpi=300)
 plt.close()
 

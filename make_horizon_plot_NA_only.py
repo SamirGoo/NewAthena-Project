@@ -7,7 +7,7 @@ from agn_model import (
     get_disk_properties
 )
 
-from cocoon_model import (
+from cocoon_model_simple import (
     cocoon_luminosity,
     cocoon_temperature_keV,
     cocoon_duration,
@@ -15,6 +15,7 @@ from cocoon_model import (
 
 from spectrum import (
     thermal_bremsstrahlung,
+    thermal_blackbody,
     observed_flux,
 )
 
@@ -36,25 +37,28 @@ log_SMBH_masses = np.random.uniform(
 )
 SMBH_masses = np.power(10, log_SMBH_masses)
 
-# Set up agn model - need grid of masses to interpolate over
+# Set up agn model - need grid of masses to interpolate over, cut to 3 for testing
 M_SMBH_GRID = np.logspace(6, 10, 10)
 dimless_rmin, dimless_rmax, log_rho_interp, log_cs_interp = agn_grid_interps(M_SMBH_GRID)
 
-# BBH location in disk, units of Schwarzchild radius of SMBH
+# BBH location in disk, units of Schwarzchild radius of SMBH.
+# Only go out to mid disk to avoid low densities where we don't see anything
 log_bbh_dimless_radii = np.random.uniform(
     np.log10(dimless_rmin),
-    np.log10(dimless_rmax),
+    0.5 * np.log10(dimless_rmax),
     N_agn
 )
 bbh_dimless_radii = np.power(10, log_bbh_dimless_radii)
 
 # Get sound speeds and densities
-rho_agn_grid, cs_grid = get_disk_properties(log_rho_interp, log_cs_interp, SMBH_masses, bbh_dimless_radii)
-# Convert from SI (kg m^-3, m s^-1) to cgs (g cm^-3, cm s^-1)
+rho_agn_grid, cs_grid, H_grid = get_disk_properties(log_rho_interp, log_cs_interp, SMBH_masses, bbh_dimless_radii)
+# Convert from SI (kg m^-3, m s^-1, m) to cgs (g cm^-3, cm s^-1, cm)
 rho_agn_grid *= 1e-3
 cs_grid *= 1e2
+H_grid *= 1e2
 
-# BBH masses
+
+# BBH remnant masses
 masses = np.logspace(
     1.5,
     4.4,
@@ -63,9 +67,9 @@ masses = np.logspace(
 
 # redshift range
 z_grid = np.logspace(
-    -1,
+    -2,
     2,
-    300,
+    200,
 )
 
 Eobs = athena.energy
@@ -83,7 +87,7 @@ colors = ['red', 'blue', 'green', 'magenta']
 
 for i, (label, vk) in enumerate(kick_velocities.items()):
 
-    horizon = {'min': [], 'mean': [], 'max': []}
+    horizon = {'min': [], 'mean': [], 'max': [], 'maxmax': []}
 
     outfile = open(f"newathena_horizon_vk_{i}.txt", "w")
 
@@ -91,7 +95,9 @@ for i, (label, vk) in enumerate(kick_velocities.items()):
 
         zmax_range = []
 
-        for rho_agn, cs in zip(rho_agn_grid, cs_grid):
+        for rho_agn, cs, H in zip(rho_agn_grid, cs_grid, H_grid):
+
+            print()
 
             zmax = 0
 
@@ -100,21 +106,26 @@ for i, (label, vk) in enumerate(kick_velocities.items()):
                 rho_agn,
                 vk,
                 cs,
-            )
+                H,
+            ) # in erg/s
 
             kT = cocoon_temperature_keV(
                 mass,
                 rho_agn,
                 vk,
                 cs,
-            )
+                H
+            ) # in keV
 
             duration = cocoon_duration(
                 mass,
                 rho_agn,
                 vk,
                 cs,
-            )
+                H
+            ) # in s
+
+            print("Lx:", Lx, "kT:", kT, "T Kelvin:", kT * 1.16045e7, "duration:", duration)
 
             exposure = min(
                 10000.,
@@ -138,11 +149,9 @@ for i, (label, vk) in enumerate(kick_velocities.items()):
                         kT,
                     )
                 )
-
                 source_spec *= transmission(
                     Erest[zi]
                 )
-
                 flux = observed_flux(
                     Eobs,
                     source_spec,
@@ -172,9 +181,11 @@ for i, (label, vk) in enumerate(kick_velocities.items()):
             zmax_range.append(zmax)
 
         # want to store mean, max and min zmax
-        zmaxmin = np.percentile(zmax_range, 5, axis=0)
-        zmaxmean = np.mean(zmax_range, axis=0)
-        zmaxmax = np.percentile(zmax_range, 95, axis=0)
+        zmaxmin = np.nanpercentile(zmax_range, 5, axis=0)
+        zmaxmean = np.nanmean(zmax_range, axis=0)
+        zmaxmax = np.nanpercentile(zmax_range, 95, axis=0)
+        zmaxmaxmax = max(zmax_range)
+        print(min(zmax_range), max(zmax_range))
 
         horizon['min'].append(
             zmaxmin
@@ -185,13 +196,23 @@ for i, (label, vk) in enumerate(kick_velocities.items()):
         horizon['max'].append(
             zmaxmax
         )
+        horizon['maxmax'].append(
+            zmaxmax
+        )
 
-        outfile.write(f"{mass}, {zmaxmin}, {zmaxmean}, {zmaxmax}\n")
+        outfile.write(f"{mass}, {zmaxmin}, {zmaxmean}, {zmaxmax}, {zmaxmaxmax}\n")
 
     plt.plot(
         masses,
         horizon['mean'],
         color=colors[i]
+    )
+
+    plt.plot(
+        masses,
+        horizon['maxmax'],
+        color=colors[i],
+        lw=4
     )
 
     plt.fill_between(

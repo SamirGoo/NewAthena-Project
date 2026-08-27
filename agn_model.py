@@ -38,6 +38,7 @@ def agn_grid_interps(Mbh_grid,
 
     disk0 = get_agn_model(Mbh_grid[0], le, mdot, alpha, X, b, opacity, n_resolution)
     r_grid_dimensionless = disk0.R/disk0.Rs # build interpolator on R scaled to Rs as this is a constant regardless of SMBH mass
+
     rho_grid = np.zeros((len(Mbh_grid), len(r_grid_dimensionless)))
     cs_grid = np.zeros((len(Mbh_grid), len(r_grid_dimensionless)))
 
@@ -74,6 +75,10 @@ def get_disk_properties(log_rho_interp, log_cs_interp, Mbh, r_dimensionless):
     rho = 10**log_rho_interp(points)
     cs  = 10**log_cs_interp(points)
 
-    return rho, cs
+    Rs = 2 * ct.G * Mbh * ct.MSun / ct.c**2
+    R = r_dimensionless * Rs
+    Omega = np.sqrt(ct.G * Mbh * ct.MSun / R**3)
 
+    H = cs / Omega
 
+    return rho, cs, H

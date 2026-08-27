@@ -7,7 +7,7 @@ from agn_model import (
     get_disk_properties
 )
 
-from cocoon_model import (
+from cocoon_model_simple import (
     cocoon_luminosity,
     cocoon_temperature_keV,
     cocoon_duration,
@@ -15,19 +15,24 @@ from cocoon_model import (
 
 from spectrum import (
     thermal_bremsstrahlung,
+    thermal_blackbody,
     observed_flux,
 )
 
 from absorption import transmission
 
 from kicks import Vkick_NRfit
+from utils import Mrem_NRSURfit
 
 import matplotlib.pyplot as plt
 
 
-def get_kicks(source_properties):
+def get_remnant_mass_and_kicks(source_properties):
 
     remnant_kicks = []
+    remnant_mass = []
+
+
     for i, m1 in enumerate(source_properties['mass_1']):
         remnant_kicks.append(
                              Vkick_NRfit(source_properties['mass_1'][i],
@@ -38,7 +43,17 @@ def get_kicks(source_properties):
                              np.cos(source_properties['tilt_2'][i]),
                              source_properties['phi_12'][i])
                              )
-    return np.array(remnant_kicks)
+        remnant_mass.append(
+                             Mrem_NRSURfit(source_properties['mass_1'][i],
+                             source_properties['mass_2'][i],
+                             source_properties['a_1'][i],
+                             source_properties['a_2'][i],
+                             np.cos(source_properties['tilt_1'][i]),
+                             np.cos(source_properties['tilt_2'][i]),
+                             source_properties['phi_12'][i])
+                             )
+
+    return np.array(remnant_mass), np.array(remnant_kicks)
 
 
 def get_observation_significance(detector_model, source_properties, M_SMBH, fractional_rbbh):
@@ -47,24 +62,27 @@ def get_observation_significance(detector_model, source_properties, M_SMBH, frac
     Erest = np.array([Eobs * (1 + z) for z in source_properties['redshift']])
 
     # Remnant mass in solar masses
-    remnant_mass = (source_properties['mass_1'] + source_properties['mass_2']) * 0.95 # IRS todo make this computation more sophisticated
-    vk = get_kicks(source_properties) * 1e5 # kick units are km/s, converted to cm/s
+    remnant_mass, vk = get_remnant_mass_and_kicks(source_properties)
+    print(remnant_mass)
+    vk *= 1e5 # kick units are km/s, converted to cm/s
 
     # Set up agn model
     smbh_grid = np.logspace(6, 10, 10)
     dimless_rmin, dimless_rmax, log_rho_interp, log_cs_interp = agn_grid_interps(smbh_grid)
     dimless_rbbh = dimless_rmin + (fractional_rbbh * (dimless_rmax - dimless_rmin))
 
-    rho_agn, cs = get_disk_properties(log_rho_interp, log_cs_interp, M_SMBH, dimless_rbbh)
+    rho_agn, cs, H = get_disk_properties(log_rho_interp, log_cs_interp, M_SMBH, dimless_rbbh)
     # convert to cgs
     rho_agn *= 1e-3
     cs *= 1e2
+    H *= 1e2
 
     Lx = cocoon_luminosity(
                 remnant_mass,
                 rho_agn,
                 vk,
                 cs,
+                H
             )
 
     kT = cocoon_temperature_keV(
@@ -72,6 +90,7 @@ def get_observation_significance(detector_model, source_properties, M_SMBH, frac
                 rho_agn,
                 vk,
                 cs,
+                H
             )
 
     duration = cocoon_duration(
@@ -79,6 +98,7 @@ def get_observation_significance(detector_model, source_properties, M_SMBH, frac
                 rho_agn,
                 vk,
                 cs,
+                H
             )
 
     source_spec = np.array([thermal_bremsstrahlung(Eresti, Lxi, kTi) * transmission(Eresti) for Eresti, Lxi, kTi in zip(Erest, Lx, kT)])
