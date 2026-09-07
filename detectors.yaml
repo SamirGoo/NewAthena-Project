@@ -12,7 +12,56 @@ ET:
         spacing:          geometric
         df:               1./16.
         npoints:          1000   
-        arm_length:       10000           
+        arm_length:       10000
+
+ET_sos:
+        lat:              (40 + 31. / 60 ) * np.pi / 180.
+        lon:              (9 + 25. / 60) * np.pi / 180.
+        opening_angle:    np.pi / 2.
+        azimuth:          70.5674 * np.pi / 180.
+        psd_data:         ET_cryo_15km_psd.txt
+        duty_factor:      0.85
+        detector_class:   earthL
+        plotrange:        3, 1000, 1e-25, 1e-20
+        fmin:             2.
+        fmax:             2048.
+        spacing:          geometric
+        df:               1./16.
+        npoints:          1000  
+        arm_length:       15000          
+
+ET_sas:
+        lat:              (51 + 12. / 60) * np.pi / 180.
+        lon:              (14 + 18. / 60) * np.pi / 180.
+        opening_angle:    np.pi / 2.
+        azimuth:          (70.5674 + 45.) * np.pi / 180.
+        psd_data:         ET_cryo_15km_psd.txt
+        duty_factor:      0.85
+        detector_class:   earthL
+        plotrange:        3, 1000, 1e-25, 1e-20
+        fmin:             2.
+        fmax:             2048.
+        spacing:          geometric
+        df:               1./16.
+        npoints:          1000  
+        arm_length:       15000
+
+CE1:
+        lat:              30.56 * np.pi / 180.
+        lon:              -90.77 * np.pi / 180.
+        opening_angle:    np.pi / 2.
+        azimuth:          126. * np.pi / 180.
+        psd_data:         CE2_psd.txt
+        duty_factor:      0.85
+        detector_class:   earthL
+        plotrange:        10, 1000, 1e-25, 1e-20
+        fmin:             2
+        fmax:             1024
+        spacing:          geometric
+        df:               1./4.
+        npoints:          5000
+        arm_length:       40000
+           
 VOY:
         lat:              46.5 * np.pi / 180.
         lon:              -119.4 * np.pi / 180.
