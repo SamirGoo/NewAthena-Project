@@ -128,7 +128,7 @@ def cocoon_duration(
 ):
     kappa = 0.34 # cm^2 g^-1
     t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
-    beta_h = get_beta_h((H, t_bre)
+    beta_h = get_beta_h(H, t_bre)
 
     return 1 / (kappa * rho_agn * beta_h**2 * c)
 
@@ -145,7 +145,7 @@ def cocoon_temperature_keV(
 
     Ec = cocoon_energy(mass, rho_agn, vk, cs, H, f_bz)
     t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
-    t_duration = cocoon_duratione(mass, rho_agn, vk, cs, H, f_bz)
+    t_duration = cocoon_duration(mass, rho_agn, vk, cs, H, f_bz)
 
     kappa = 0.34 # cm^2 g^-1
     f_FB = 0.1 # Nakar & Piran 2017
