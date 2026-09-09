@@ -82,15 +82,19 @@ def cocoon_energy(mass,
                   f_bz=0.1):
 
 
-    t_breakout = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
+    t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
     Lj = jet_luminosity(mass, rho_agn, vk, cs, f_bz)
-    beta_h = get_beta_h(H, t_breakout)
+    beta_h = get_beta_h(H, t_bre)
 
-    return Lj * t_breakout * (1 - beta_h)
+    return Lj * t_bre * (1 - beta_h)
 
 
 def cocoon_mass(f_FB, Ec, beta_cj=0.7):
     return f_FB * Ec / (beta_cj**2 * c**2)
+
+
+def cocoon_volume(H, t_bre, beta_c=0.7):
+    return np.pi * get_beta_h(H, t_bre) * beta_c**2 * c**3 * t_bre**3
 
 
 # from eq 29 of chen and dai
@@ -106,15 +110,27 @@ def cocoon_luminosity(
     Ec = cocoon_energy(mass, rho_agn, vk, cs, H, f_bz)
     f_FB = 0.1 # Nakar & Piran 2017
     kappa = 0.34 # cm^2 g^-1
-    V_cj = np.pi * (0.05 * H)**2 * H # volume of the cocoon - radius assumed to be 5% of disk height
-    m_cj = rho_agn * V_cj # cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
+    t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
+    V_cj = cocoon_volume(H, t_bre)
+    m_cj = cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
 
     return 2 * np.pi * c * f_FB * Ec * V_cj**(1/3) / (kappa * m_cj)
 
 
+# chen and dai calculations eq 15
+def cocoon_duration(
+    mass,
+    rho_agn,
+    vk,
+    cs,
+    H,
+    f_bz=0.1
+):
+    kappa = 0.34 # cm^2 g^-1
+    t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
+    beta_h = get_beta_h((H, t_bre)
 
-def cocoon_mass(f_FB, Ec, beta_cj=0.7):
-    return f_FB * Ec / (beta_cj**2 * c**2)
+    return 1 / (kappa * rho_agn * beta_h**2 * c)
 
 
 # chen and dai calculation
@@ -128,69 +144,47 @@ def cocoon_temperature_keV(
 ):
 
     Ec = cocoon_energy(mass, rho_agn, vk, cs, H, f_bz)
-    t_b = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
+    t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
+    t_duration = cocoon_duratione(mass, rho_agn, vk, cs, H, f_bz)
 
     kappa = 0.34 # cm^2 g^-1
     f_FB = 0.1 # Nakar & Piran 2017
-    r_cj = 0.05 * H
-    V_cj = np.pi * r_cj**2 * H # volume of the cocoon - radius assumed to be 5% of disk height
-    m_cj = rho_agn * V_cj # mass of the cocoon
-    #print("m_cj 1:", m_cj)
-    #m_cj = cocoon_mass(f_FB, Ec)
-    #print("m_cj 2:", m_cj)
+
+    V_cj = cocoon_volume(H, t_bre)
+    m_cj = cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
+
+    beta_h = get_beta_h(H, t_bre)
+
     a = 7.5657 * 1e-15 # radiation density constant, erg cm^-3 K^-4
     kB = 1.380649e-16 # erg/K
     kB_eV = 8.617333262e-5 # eV/K
 
-    TBB_cj = np.power(f_FB * Ec / (4 * a * V_cj), 1/4) # units of K
+    TBB_hbre = np.power(18/(7*a) * rho_agn * beta_h**2 * c**2, 1/4) # units of K
 
-    n_BB = a * TBB_cj**3 / 3 / kB # units of?
-    ndot_ph = 3.5e36 * rho_agn**2 * TBB_cj**(-0.5) # units of?
-    eta_cj = n_BB / t_b / ndot_ph
+    n_BB = a * TBB_hbre**3 / 3 / kB # units of?
+    ndot_ph = 3.5e36 * rho_agn**2 * TBB_hbre**(-0.5) # units of?
 
-    TBB_cj_eV = TBB_cj * kB_eV
+    eta = n_BB / t_duration / ndot_ph
 
-    Tcj_b_keV = TBB_cj_eV * 1e-3 # units of keV
+    TBB_hbre_eV = TBB_hbre * kB_eV
+
+    TBB_hbre_keV = TBB_hbre_eV * 1e-3 # units of keV
 
     try:
-        if eta_cj >= 1:
-            ymax = 3.0 * (rho_agn / 10**(-9))**(-0.5) * np.power(TBB_cj_eV / 100, 9/4)
+        if eta >= 1:
+            ymax = 3.0 * (rho_agn / 10**(-9))**(-0.5) * np.power(TBB_hbre_eV / 100, 9/4)
             compton_corrected = max(1.0, 0.5 * np.log(ymax) * (1.6 + np.log(ymax)))
-            Tcj_comp = TBB_cj * eta_cj**2 / compton_corrected**2
-            Tcj_comp_keV = Tcj_comp * kB_eV * 1e-3
-            Tcj_b_keV = min(Tcj_comp_keV, 100)
+            TBB_comp = TBB_hbre * eta**2 / compton_corrected**2
+            TBB_comp_keV = TBB_comp * kB_eV * 1e-3
+            TBB_hbre_keV = min(TBB_comp_keV, 100)
     except:
-        map = (eta_cj >= 1)
-        ymax = 3.0 * (rho_agn / 10**(-9))**(-0.5) * np.power(TBB_cj_eV / 100, 9/4)
+        map = (eta >= 1)
+        ymax = 3.0 * (rho_agn / 10**(-9))**(-0.5) * np.power(TBB_hbre_eV / 100, 9/4)
         compton_corrected = np.array([max(1.0, 0.5 * np.log(ym) * (1.6 + np.log(ym))) for ym in ymax])
-        Tcj_comp = TBB_cj * eta_cj**2 / compton_corrected**2
-        Tcj_comp_keV = Tcj_comp * kB_eV * 1e-3
-        Tcj_b_keV = np.array([min(Tcjckev, 100) if ecj >= 1 else Tbbcjkev * 1e-3 for ecj, Tcjckev, Tbbcjkev in zip(eta_cj, Tcj_comp_keV, TBB_cj_eV)])
+        TBB_comp = TBB_hbre * eta**2 / compton_corrected**2
+        TBB_comp_keV = TBB_comp * kB_eV * 1e-3
+        TBB_hbre_keV = np.array([min(T1kev, 100) if e >= 1 else T2kev for e, T1kev, T2kev in zip(eta, TBB_comp_keV, TBB_hbre_keV)])
 
-    # How much has cocoon expanded by in time t_b?
-    v_cj = np.sqrt(f_FB * Ec / m_cj)
-    r_diff = np.sqrt(kappa * m_cj * v_cj / (4 * np.pi * c))
-
-    Tcj = Tcj_b_keV * V_cj ** (1/3) / r_diff
-
-    return Tcj
+    return TBB_hbre_keV
 
 
-# chen and dai calculations eq 30
-def cocoon_duration(
-    mass,
-    rho_agn,
-    vk,
-    cs,
-    H,
-    f_bz=0.1
-):
-
-    Ec = cocoon_energy(mass, rho_agn, vk, cs, H, f_bz)
-    f_FB = 0.1 # Nakar & Piran 2017
-    kappa = 0.34 # cm^2 g^-1
-    V_cj = np.pi * (0.05 * H)**2 * H # volume of the cocoon - radius assumed to be 5% of disk height
-    m_cj = rho_agn * V_cj # cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
-    beta_cj = np.sqrt(f_FB * Ec / (m_cj * c**2)) # rearranged eq 29 for this
-
-    return np.sqrt(kappa * m_cj / (4 * np.pi * beta_cj * c**2))
