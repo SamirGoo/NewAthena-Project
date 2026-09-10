@@ -33,20 +33,22 @@ from significance import get_observation_significance
 
 
 athena = AthenaWFI(
-    "rsp/NewAthena_WFI_13rows_LDA_wo_filter_FoVAvg_20260511.rsp",
-    "bkgd/NewAthena_WFI_13rows_LDA_20260528_bkgd_sum_9asec_wo_filter_FoVAvg.pha",
+    "rsp/NewAthena_WFI_13rows_LDA_w_filter_FoVAvg_20260511.rsp",
+    "bkgd/NewAthena_WFI_13rows_LDA_20260528_bkgd_sum_9asec_w_filter_FoVAvg.pha",
 )
 
 base_dir = "."
-regenerate = False
+regenerate = True
 
-N_pop = 100000
-label = "2"
+N_pop = 10000
+label = "0"
 
 if regenerate:
 
     # One CE at LLO, one CE at Gingin (Australia), ET in Sardinia
     detectors = ['CE1', 'CE2', 'ET']
+    # Detectors are one CE at LHO location, two L-shaped ETs in Sardinia and Saxony
+    detectors = ['CE1', 'ET_sas', 'ET_sos']
 
     results = {'detected_idxs':[],
            'netw_snrs':[],
@@ -167,7 +169,7 @@ plt.colorbar(label='Network SNR')
 plt.axhline(0.7, label='NewAthena WFI span (single tiling)', color='k', ls='--')
 plt.axhline(10, label='10 deg$^2$', color='k', ls=':')
 plt.legend(loc='upper left')
-plt.xlabel('Binary total mass [M$_\odot$]')
+plt.xlabel('Total binary mass [M$_\odot$]')
 plt.ylabel('90% sky loc [deg$^2$]')
 plt.xscale('log')
 plt.yscale('log')

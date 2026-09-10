@@ -7,7 +7,7 @@ from agn_model import (
     get_disk_properties
 )
 
-from cocoon_model_simple import (
+from cocoon_model import (
     cocoon_luminosity,
     cocoon_temperature_keV,
     cocoon_duration,
@@ -22,8 +22,8 @@ from spectrum import (
 from absorption import transmission
 
 athena = AthenaWFI(
-    "rsp/NewAthena_WFI_13rows_LDA_wo_filter_FoVAvg_20260511.rsp",
-    "bkgd/NewAthena_WFI_13rows_LDA_20260528_bkgd_sum_9asec_wo_filter_FoVAvg.pha",
+    "rsp/NewAthena_WFI_13rows_LDA_w_filter_FoVAvg_20260511.rsp",
+    "bkgd/NewAthena_WFI_13rows_LDA_20260528_bkgd_sum_9asec_w_filter_FoVAvg.pha",
 )
 
 # Number of AGN parameters and BBH positions to vary
