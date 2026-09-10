@@ -63,7 +63,6 @@ def get_observation_significance(detector_model, source_properties, M_SMBH, frac
 
     # Remnant mass in solar masses
     remnant_mass, vk = get_remnant_mass_and_kicks(source_properties)
-    print(remnant_mass)
     vk *= 1e5 # kick units are km/s, converted to cm/s
 
     # Set up agn model
@@ -121,11 +120,5 @@ def get_observation_significance(detector_model, source_properties, M_SMBH, frac
                         S + B
                     )
     )
-    fig = plt.figure()
-    plt.scatter(vk, significance)
-    plt.xlabel('vk (cm/s)')
-    plt.ylabel('significance')
-    plt.savefig('vk_vs_sig.png')
-    plt.close()
     return np.array(significance)
 
