@@ -57,7 +57,19 @@ def get_beta_h(H, t_breakout):
     return 3 * H / (5 * t_breakout * c)
 
 
-# from chen and dai
+# distance between jet head and disk surace, eq 11
+def get_d_bre(H, rho_agn, beta_h):
+    k = 0.34 # cm^2 g^-1, Thompson scattering
+    return 1 / (k * rho_agn * beta_h)
+
+
+# Eq 9
+def get_jet_cross_section(L_jet, Pc, theta_0=0.17):
+    return L_jet * theta_0**2 / (4 * c * Pc)
+
+
+
+# from chen and dai - this changes, why?
 def breakout_time(mass,
     rho_agn,
     vk,
@@ -66,13 +78,12 @@ def breakout_time(mass,
     f_bz=0.1,
     theta_0=0.17
 ):
-
     Lj = jet_luminosity(mass, rho_agn, vk, cs, f_bz)
 
     return (3/5) * H**(5/3) * (rho_agn * theta_0 / Lj)**(1/3)
 
 
-# from chen and dai
+# from chen and dai - somehow this is negative?
 def cocoon_energy(mass,
                   rho_agn,
                   vk,
@@ -88,15 +99,51 @@ def cocoon_energy(mass,
     return Lj * t_bre * (1 - beta_h)
 
 
-def cocoon_mass(f_FB, Ec, beta_cj=0.7):
-    return f_FB * Ec / (beta_cj**2 * c**2)
-
-
-def cocoon_volume(H, t_bre, beta_c=0.7):
+# eq 13
+def total_cocoon_volume(H, t_bre, beta_c=0.7):
     return np.pi * get_beta_h(H, t_bre) * beta_c**2 * c**3 * t_bre**3
 
 
-# from eq 29 of chen and dai
+
+# from eq 8 of chen and dai - somehow this is negative
+def cocoon_pressure(
+    mass,
+    rho_agn,
+    vk,
+    cs,
+    H,
+    f_bz=0.1,
+):
+    t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
+    Ec = cocoon_energy(mass, rho_agn, vk, cs, H, f_bz)
+    Vc = total_cocoon_volume(H, t_bre)
+    return Ec / (3 * Vc)
+
+
+# eq 26
+def jet_cocoon_mass(f_FB, Ec, beta_cj=0.7):
+    return f_FB * Ec / (beta_cj**2 * c**2)
+
+
+# eq 27 - somehow this is negative
+def jet_cocoon_volume(
+    mass,
+    rho_agn,
+    vk,
+    cs,
+    H,
+    f_bz=0.1,
+):
+    Lj = jet_luminosity(mass, rho_agn, vk, cs, f_bz)
+    Pc = cocoon_pressure(mass, rho_agn, vk, cs, H, f_bz)
+    t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
+    beta_h = get_beta_h(H, t_bre)
+    d_bre = get_d_bre(H, rho_agn, beta_h)
+    sigma_j = get_jet_cross_section(Lj, Pc)
+    return sigma_j * (H - d_bre)
+
+
+# from eq 29 of chen and dai - jet cocoon
 def cocoon_luminosity(
     mass,
     rho_agn,
@@ -110,8 +157,8 @@ def cocoon_luminosity(
     f_FB = 0.1 # Nakar & Piran 2017
     kappa = 0.34 # cm^2 g^-1
     t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
-    V_cj = cocoon_volume(H, t_bre)
-    m_cj = cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
+    V_cj = jet_cocoon_volume(mass, rho_agn, vk, cs, H, f_bz)
+    m_cj = jet_cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
 
     return 2 * np.pi * c * f_FB * Ec * V_cj**(1/3) / (kappa * m_cj)
 
@@ -132,7 +179,7 @@ def breakout_duration(
     return 1 / (kappa * rho_agn * beta_h**2 * c)
 
 
-# chen and dai calculations eq 30
+# chen and dai calculations eq 30 - jet cocoon duration
 def cocoon_duration(
     mass,
     rho_agn,
@@ -144,7 +191,7 @@ def cocoon_duration(
     kappa = 0.34 # cm^2 g^-1
     Ec = cocoon_energy(mass, rho_agn, vk, cs, H, f_bz)
     f_FB = 0.1 # Nakar & Piran 2017
-    m_cj = cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
+    m_cj = jet_cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
     beta_cj = 0.7 # assumption, may be important to vary this
     duration = np.sqrt(kappa * m_cj / (4 * np.pi * beta_cj * c**2))
 
@@ -167,8 +214,8 @@ def cocoon_temperature_keV(
     t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
     t_duration = cocoon_duration(mass, rho_agn, vk, cs, H, f_bz)
 
-    V_cj = cocoon_volume(H, t_bre)
-    m_cj = cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
+    V_cj = jet_cocoon_volume(mass, rho_agn, vk, cs, H, f_bz)
+    m_cj = jet_cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
 
     beta_h = get_beta_h(H, t_bre)
 
@@ -203,60 +250,3 @@ def cocoon_temperature_keV(
         TBB_hbre_keV = np.array([min(T1kev, 100) if e >= 1 else T2kev for e, T1kev, T2kev in zip(eta, TBB_comp_keV, TBB_hbre_keV)])
 
     return TBB_hbre_keV
-
-
-# chen and dai calculation
-def breakout_temperature_keV(
-    mass,
-    rho_agn,
-    vk,
-    cs,
-    H,
-    f_bz=0.1,
-):
-
-    Ec = cocoon_energy(mass, rho_agn, vk, cs, H, f_bz)
-    t_bre = breakout_time(mass, rho_agn, vk, cs, H, f_bz)
-    t_duration = breakout_duration(mass, rho_agn, vk, cs, H, f_bz)
-
-    kappa = 0.34 # cm^2 g^-1
-    f_FB = 0.1 # Nakar & Piran 2017
-
-    V_cj = cocoon_volume(H, t_bre)
-    m_cj = cocoon_mass(f_FB, Ec) # rho_agn * V_cj # mass of the cocoon
-
-    beta_h = get_beta_h(H, t_bre)
-
-    a = 7.5657 * 1e-15 # radiation density constant, erg cm^-3 K^-4
-    kB = 1.380649e-16 # erg/K
-    kB_eV = 8.617333262e-5 # eV/K
-
-    TBB_hbre = np.power(18/(7*a) * rho_agn * beta_h**2 * c**2, 1/4) # units of K
-
-    n_BB = a * TBB_hbre**3 / 3 / kB # units of?
-    ndot_ph = 3.5e36 * rho_agn**2 * TBB_hbre**(-0.5) # units of?
-
-    eta = n_BB / t_duration / ndot_ph
-
-    TBB_hbre_eV = TBB_hbre * kB_eV
-
-    TBB_hbre_keV = TBB_hbre_eV * 1e-3 # units of keV
-
-    try:
-        if eta >= 1:
-            ymax = 3.0 * (rho_agn / 10**(-9))**(-0.5) * np.power(TBB_hbre_eV / 100, 9/4)
-            compton_corrected = max(1.0, 0.5 * np.log(ymax) * (1.6 + np.log(ymax)))
-            TBB_comp = TBB_hbre * eta**2 / compton_corrected**2
-            TBB_comp_keV = TBB_comp * kB_eV * 1e-3
-            TBB_hbre_keV = min(TBB_comp_keV, 100)
-    except:
-        map = (eta >= 1)
-        ymax = 3.0 * (rho_agn / 10**(-9))**(-0.5) * np.power(TBB_hbre_eV / 100, 9/4)
-        compton_corrected = np.array([max(1.0, 0.5 * np.log(ym) * (1.6 + np.log(ym))) for ym in ymax])
-        TBB_comp = TBB_hbre * eta**2 / compton_corrected**2
-        TBB_comp_keV = TBB_comp * kB_eV * 1e-3
-        TBB_hbre_keV = np.array([min(T1kev, 100) if e >= 1 else T2kev for e, T1kev, T2kev in zip(eta, TBB_comp_keV, TBB_hbre_keV)])
-
-    return TBB_hbre_keV
-
-

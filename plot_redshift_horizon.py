@@ -15,12 +15,16 @@ import astropy.units as u
 
 
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+mpl.style.use('plotting.mplstyle')
 
 
 base_dir = "."
 
 # Detectors are one CE at LLO location, one CE at Gingin (Australia), ET in Sardinia
 detectors = ['CE1', 'CE2', 'ET']
+# Detectors are one CE at LHO location, two L-shaped ETs in Sardinia and Saxony
+detectors = ['CE1', 'ET_sas', 'ET_sos']
 detectors_2G = ['LLO', 'LHO', 'VIR']
 
 ls = [':', '-.', '--']
@@ -58,6 +62,7 @@ for det_name in detectors_2G:
 
 total_mass_range = np.logspace(1.5, 4.4, 200)
 hzn_store = {'nwk': [], 'CE1': [], 'CE2': [], 'ET': []}
+hzn_store = {'nwk': [], 'CE1': [], 'ET_sas': [], 'ET_sos': []}
 hzn_store_2G = {'nwk': [], 'LLO': [], 'LHO': [], 'VIR': []}
 
 
@@ -107,9 +112,9 @@ else:
 # Read NewAthena data
 # Format: (f"{mass}, {zmaxmin}, {zmaxmean}, {zmaxmax}\n")
 NA_files_per_vk = {
-    "50 km/s": 'newathena_horizon_vk_0.txt',
-    "500 km/s": 'newathena_horizon_vk_1.txt',
-    "5000 km/s": 'newathena_horizon_vk_2.txt'
+    "50 km s$^{-1}$": 'newathena_horizon_vk_0.txt',
+    "500 km s$^{-1}$": 'newathena_horizon_vk_1.txt',
+    "5000 km s$^{-1}$": 'newathena_horizon_vk_2.txt'
 }
 
 # Three shades
@@ -124,8 +129,11 @@ for i, (k, f) in enumerate(NA_files_per_vk.items()):
     zmaxmeans = data[:, 2]
     zmaxmaxs = data[:, 3]
     zmaxmaxmaxs = data[:, 4]
-    plt.fill_between(masses, zmaxmins, zmaxmaxs, color=colors[i], alpha=0.25, label=k)
-    plt.loglog(masses, zmaxmeans, alpha=0.5, color=colors[i], lw=3)
+    plt.fill_between(masses, zmaxmeans, zmaxmaxmaxs, color=colors[i], alpha=0.2) #, label=k)
+    # plt.loglog(masses, zmaxmins, alpha=1, color=colors[i], lw=0.5)
+    #plt.loglog(masses, zmaxmeans, alpha=1, color=colors[i], lw=1, ls=':')
+    plt.loglog(masses, zmaxmaxs, alpha=1, color=colors[i], lw=3, label=k)
+    #plt.loglog(masses, zmaxmaxmaxs, alpha=1, color=colors[i], lw=1, ls='--')
 
 
 for i, det_name in enumerate(detectors):
@@ -133,15 +141,15 @@ for i, det_name in enumerate(detectors):
 plt.loglog(total_mass_range, hzn_store['nwk'], color='k', lw=3) # label='CE1+CE2+ET',
 
 for i, det_name in enumerate(detectors_2G):
-    plt.loglog(total_mass_range[0:len(hzn_store_2G[det_name])], hzn_store_2G[det_name], color='white', ls=ls[i], lw=1)
+    plt.loglog(total_mass_range[0:len(hzn_store_2G[det_name])], hzn_store_2G[det_name], color='grey', ls=ls[i], lw=1)
 
-plt.loglog(total_mass_range, hzn_store_2G['nwk'], color='white', lw=3) # label='LLO+LHO+VIR'
+plt.loglog(total_mass_range, hzn_store_2G['nwk'], color='grey', lw=3) # label='LLO+LHO+VIR'
 
-plt.ylim(1e-1, 200)
-plt.xlim(min(total_mass_range), max(total_mass_range))
+plt.ylim(3e-1, 100)
+plt.xlim(min(total_mass_range), 1.1*10**4)
 plt.fill_between(total_mass_range, y1=1, y2=3, color='r', alpha=0.25)
 plt.fill_between(total_mass_range, y1=2, y2=2.5, color='r', alpha=0.25) #, label='peak AGN activity')
-plt.legend(loc="upper right")
+plt.legend(loc="upper left", handlelength=1)
 plt.xlabel("Total binary mass [M$_\odot$]")
 plt.ylabel("Redshift horizon")
 plt.savefig("horizon_3G_network.png", transparent=True, dpi=300)

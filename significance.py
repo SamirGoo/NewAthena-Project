@@ -53,6 +53,17 @@ def get_remnant_mass_and_kicks(source_properties):
                              source_properties['phi_12'][i])
                              )
 
+    fig = plt.figure()
+    plt.scatter(remnant_mass, remnant_kicks, color='k', s=2)
+    plt.xlim([100, max(remnant_mass)])
+    plt.ylim([50, 2000])
+    plt.yscale('log')
+    plt.xlabel('Remnant mass [M$_\odot$]')
+    plt.ylabel('Remnant kick [km/s]')
+    plt.savefig('Mr_vs_vk.png', dpi=300)
+    plt.close()
+    print('plotted Mrem vs kick vel')
+
     return np.array(remnant_mass), np.array(remnant_kicks)
 
 

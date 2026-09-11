@@ -197,7 +197,7 @@ for i, (label, vk) in enumerate(kick_velocities.items()):
             zmaxmax
         )
         horizon['maxmax'].append(
-            zmaxmax
+            zmaxmaxmax
         )
 
         outfile.write(f"{mass}, {zmaxmin}, {zmaxmean}, {zmaxmax}, {zmaxmaxmax}\n")

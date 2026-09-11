@@ -13,6 +13,9 @@ import bilby as bb
 import matplotlib
 import matplotlib.pylab as plt
 
+import matplotlib as mpl
+mpl.style.use('plotting.mplstyle')
+
 import json
 
 from athena_wfi import AthenaWFI
@@ -40,8 +43,8 @@ athena = AthenaWFI(
 base_dir = "."
 regenerate = True
 
-N_pop = 10000
-label = "0"
+N_pop = 200000
+label = "2"
 
 if regenerate:
 
@@ -57,21 +60,23 @@ if regenerate:
 
     # Draw sets of parameters from BBHPriorDict
     prior = bb.gw.prior.BBHPriorDict()
-    prior['mass_1'].minimum = 50
-    prior['mass_1'].maximum = 10000
-    prior['mass_2'].minimum = 50
-    prior['mass_2'].maximum = 10000
-    prior['chirp_mass'].minimum = 30
-    prior['chirp_mass'].maximum = 10000
+    prior['mass_1'].minimum = 5
+    prior['mass_1'].maximum = 20000
+    prior['mass_2'].minimum = 5
+    prior['mass_2'].maximum = 20000
+    prior['chirp_mass'].minimum = 10
+    prior['chirp_mass'].maximum = 25000
+    prior['total_mass'] = bb.gw.prior.Constraint(name='total_mass', minimum=10**1.5, maximum=10**4.4)
     prior['luminosity_distance'].minimum = 50
-    prior['luminosity_distance'].maximum = 25924.2 # z = 3, 47647.9 for z = 5, 106192.4 for z = 10, probably need to decrease for more detectable sources
+    prior['luminosity_distance'].maximum = 106192.4 # 25924.2 # z = 3, 47647.9 for z = 5, 106192.4 for z = 10, probably need to decrease for more detectable sources
     prior['SMBH_mass'] = bb.prior.LogUniform(name='SMBH_mass', minimum=1e6, maximum=1e10)
     prior['fractional_r'] = bb.prior.LogUniform(name='fractional_r', minimum=1e-10, maximum=0.5)
     prior['geocent_time'] = bb.prior.Uniform(name='geocent_time', minimum=0, maximum=np.pi * 10**7)
 
     _pop_samples = prior.sample(N_pop)
-    print(_pop_samples['SMBH_mass'])
     _pop_samples['total_mass'] = bb.gw.conversion.chirp_mass_and_mass_ratio_to_total_mass(_pop_samples['chirp_mass'], _pop_samples['mass_ratio'])
+    print(min(_pop_samples['total_mass']), max(_pop_samples['total_mass']))
+
     _pop_samples['redshift'] = bb.gw.conversion.luminosity_distance_to_redshift(_pop_samples['luminosity_distance'])
     _pop_samples['mass_1'], _pop_samples['mass_2'] = bb.gw.conversion.chirp_mass_and_mass_ratio_to_component_masses(_pop_samples['chirp_mass'], _pop_samples['mass_ratio'])
 
@@ -170,7 +175,7 @@ plt.axhline(0.7, label='NewAthena WFI span (single tiling)', color='k', ls='--')
 plt.axhline(10, label='10 deg$^2$', color='k', ls=':')
 plt.legend(loc='upper left')
 plt.xlabel('Total binary mass [M$_\odot$]')
-plt.ylabel('90% sky loc [deg$^2$]')
+plt.ylabel('90\% sky loc [deg$^2$]')
 plt.xscale('log')
 plt.yscale('log')
 plt.savefig('Mt_vs_sky_loc.png', transparent=True, dpi=300)
